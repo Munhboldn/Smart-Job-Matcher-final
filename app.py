@@ -1,4 +1,3 @@
-
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -168,6 +167,9 @@ if app_mode == "Resume-to-Job Matching":
 
 # --- Resume Analysis ---
 if app_mode == "Resume Analysis":
+    # Initialize the selected sector for analysis
+    selected_sector_analysis = st.selectbox("Choose sector for feedback:", [None] + list(sector_options.keys()))
+
     uploaded_file = st.file_uploader("Upload your resume for analysis", type=["pdf", "docx"])
     if uploaded_file:
         with st.spinner("Analyzing resume..."):
@@ -337,4 +339,3 @@ if app_mode == "Job Market Explorer":
         ax.imshow(wordcloud, interpolation='bilinear')
         ax.axis('off')
         st.pyplot(fig)
-
