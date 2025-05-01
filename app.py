@@ -8,8 +8,17 @@ import logging
 import tempfile
 import os
 
-# --- Import Modules ---
+# --- Streamlit Page Config  ---
+st.set_page_config(
+    page_title="Smart Job Matcher",
+    layout="wide",
+    initial_sidebar_state="expanded",
+    menu_items={'About': "# Smart Job Matcher\nFind the perfect job match for your skills and experience!"}
+)
+
+# --- Import Modules (AFTER set_page_config) ---
 from resume_parser import extract_text_from_pdf, extract_text_from_docx, analyze_resume, summarize_resume
+
 try:
     from semantic_matcher_v2 import semantic_match_resume
     SEMANTIC_OK = True
@@ -22,13 +31,6 @@ logger = logging.getLogger("smart_job_matcher")
 if not logger.handlers:
     logging.basicConfig(level=logging.INFO)
 
-# --- Streamlit Page Config ---
-st.set_page_config(
-    page_title="Smart Job Matcher",
-    layout="wide",
-    initial_sidebar_state="expanded",
-    menu_items={'About': "# Smart Job Matcher\nFind the perfect job match for your skills and experience!"}
-)
 
 # --- Session State Init ---
 def init_session():
