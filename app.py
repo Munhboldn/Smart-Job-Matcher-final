@@ -37,7 +37,7 @@ except ImportError:
     st.stop()
 
 try:
-    from semantic_matcher import semantic_match_resume, get_skill_matches
+    from semantic_matcher_v2 import semantic_match_resume
     SEMANTIC_OK = True
 except ImportError:
     SEMANTIC_OK = False
@@ -158,19 +158,7 @@ if app_mode == "Job Matching" and st.session_state.resume_text:
             st.success("🏅 Your resume looks great! Consider applying widely.")
         for _, row in matches_df.iterrows():
             st.markdown(f"### {row['Job title']} at {row['Company']}")
-            from nltk.corpus import wordnet
-
-def expand_keywords(keywords):
-    expanded = set(keywords)
-    for word in keywords:
-        for syn in wordnet.synsets(word):
-            for lemma in syn.lemmas():
-                if '_' not in lemma.name():
-                    expanded.add(lemma.name().lower())
-    return list(expanded)
-
-expanded_skills = expand_keywords(st.session_state.summary['top_skills'])
-matched = get_skill_matches(expanded_skills, row['Job description'])
+            matched = row.get("matched_skills", [])
             description = row['Job description']
             for skill in matched:
                 description = description.replace(skill, f"<mark>{skill}</mark>")
