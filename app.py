@@ -13,13 +13,18 @@ st.set_page_config(
 
 # --- Other Imports (after set_page_config) ---
 import pandas as pd
-import numpy as np # Needed by semantic_matcher, also potentially here
-import io
-# Note: plotly is imported here but used within the app modes
+import numpy as np
+import sys
+import logging
+import traceback
+from io import BytesIO
+
+import os # <--- ENSURE THIS LINE IS PRESENT!
+
+# Assuming these plotly imports are used in other parts
 import plotly.express as px
 import plotly.graph_objects as go
-import time # Used for timing in matching
-import sys # Used for debug info
+import time
 
 # --- Configure Logging (after imports and set_page_config) ---
 import logging
@@ -80,6 +85,7 @@ def load_jobs(file_path="data/zangia_filtered_jobs.csv"):
     logger.info(f"Attempting to load job data from: {file_path}")
     try:
         # Ensure file exists - important for Streamlit Cloud deployment
+        # This is where the error occurred if os is not defined
         if not os.path.exists(file_path):
              logger.error(f"Job data file not found at: {file_path}")
              st.error(f"Job data file not found at '{file_path}'. Please ensure it's in your repository.")
@@ -104,7 +110,28 @@ def load_jobs(file_path="data/zangia_filtered_jobs.csv"):
         return pd.DataFrame(columns=['Job title', 'Company', 'Salary', 'Job description', 'Requirements', 'URL'])
 
 # Load jobs data on app startup
+# This call will fail if os is not defined in the function's scope
 jobs_df = load_jobs()
+
+# --- Define sector_options Globally ---
+# Moved this dictionary definition here so it's available before app modes use it
+sector_options = {
+    "Education & Management": ["багш", "сургалт", "удирдлага", "education", "teacher", "lecturer", "professor", "academic"],
+    "Customer Service": ["customer service", "үйлчилгээ", "захиалга", "client", "support", "help desk", "call center"],
+    "Leadership": ["менежер", "захирал", "manager", "director", "executive", "chief", "head of", "supervisor"],
+    "Tech & Development": ["developer", "инженер", "програм", "software", "programmer", "coder", "IT", "tech", "web", "mobile"],
+    "Creative & Marketing": ["дизайн", "сошиал", "контент", "media", "designer", "creative", "marketing", "brand", "SEO", "content"],
+    "Finance": ["нягтлан", "санхүү", "finance", "accountant", "accounting", "financial", "budget", "tax", "banking"],
+    "Healthcare": ["эмч", "сувилагч", "health", "эрүүл мэнд", "doctor", "nurse", "medical", "healthcare", "clinic", "hospital"],
+    "Logistics & Support": ["logistics", "тээвэр", "нярав", "туслах", "warehouse", "shipping", "supply chain", "inventory"],
+    "Data & AI": ["data analyst", "data scientist", "AI", "мэдээлэл шинжээч", "machine learning", "analytics", "big data", "statistics"],
+    "HR & Recruitment": ["HR", "хүний нөөц", "recruiter", "talent", "hiring", "recruitment", "personnel", "staffing"],
+    "Legal & Compliance": ["хууль", "lawyer", "legal", "compliance", "attorney", "law", "regulatory", "contracts"],
+    "Sales": ["борлуулалт", "sales", "зөвлөх", "business development", "account manager", "retail", "revenue"],
+    "Project Management": ["төслийн менежер", "project manager", "project coordinator", "scrum", "agile", "program manager"],
+    "Engineering & Construction": ["механик", "цахилгаан", "civil", "барилга", "engineer", "mechanical", "electrical", "construction"]
+}
+
 
 # --- Custom Styling (from your old app.py) ---
 st.markdown("""
@@ -182,8 +209,10 @@ if 'job_results' not in st.session_state:
 if 'skills_extracted' not in st.session_state: # Corresponds to basic skills from basic analysis
     st.session_state.skills_extracted = []
 # Add session state for semantic analysis results if needed by the UI
-# if 'resume_analysis_semantic' not in st.session_state:
-#      st.session_state.resume_analysis_semantic = None # For semantic analysis results
+# The old app.py used analyze_resume (from semantic_matcher aliased as analyze_resume_skills)
+# in the Resume Analysis tab. Let's store its result.
+if 'resume_analysis_semantic' not in st.session_state:
+     st.session_state.resume_analysis_semantic = None # For semantic analysis results (skills, keywords, sections_semantic, completeness_semantic)
 
 
 # Custom header (using markdown)
@@ -206,31 +235,48 @@ with st.sidebar:
               try:
                   # Find min/max salary from the loaded data for better input range
                   # Requires extracting numeric salary first, similar to the display logic
+                  # Use re from imports
                   def extract_salary_numeric(salary_str):
-                       if pd.isna(salary_str) or salary_str == 'Not specified': return 0
-                       try: return int(re.sub(r'\D', '', str(salary_str))) # Simple extraction
-                       except: return 0
+                       if pd.isna(salary_str) or str(salary_str).strip() == '' or str(salary_str).lower() == 'not specified': return 0 # Handle empty/None/string
+                       try:
+                            # Find all numbers in the string
+                            numbers = re.findall(r'\d+', str(salary_str))
+                            if numbers:
+                                 # Assuming salary is a single number or a range (take min or avg)
+                                 # Let's take the first number found as a simple approach
+                                 return int(numbers[0])
+                            return 0
+                       except: return 0 # Return 0 on any conversion error
+
                   numeric_salaries = jobs_df['Salary'].apply(extract_salary_numeric)
-                  min_salary_data = numeric_salaries[numeric_salaries > 0].min() if not numeric_salaries[numeric_salaries > 0].empty else 0
+                  # Filter out zeros/missing values when finding min
+                  valid_salaries = numeric_salaries[numeric_salaries > 0]
+
+                  min_salary_data = valid_salaries.min() if not valid_salaries.empty else 0
                   max_salary_data = numeric_salaries.max() if not numeric_salaries.empty else 10000000 # Assume a reasonable max
+
+                  # Adjust default value and step based on typical salary ranges if needed
+                  default_salary_input = int(min_salary_data) if min_salary_data > 0 else 0
+                  step_value = 100000 # Default step
 
                   salary_min = st.number_input(
                       "Minimum Salary (₮)",
                       min_value=0,
                       # Set a default value based on data min, step
-                      value=int(min_salary_data),
-                      step=100000,
+                      value=default_salary_input,
+                      step=step_value,
                       format="%d" # Ensure integer display
                   )
                   if salary_min > max_salary_data:
-                       st.warning(f"Minimum salary exceeds the maximum found salary ({max_salary_data:,.0f}₮). No jobs will match.")
+                       st.warning(f"Minimum salary ({salary_min:,.0f}₮) exceeds the maximum found salary ({max_salary_data:,.0f}₮). No jobs will match.")
 
               except Exception as e:
+                   logger.error(f"Could not load salary filters: {e}", exc_info=True)
                    st.warning(f"Could not load salary filters: {e}")
-                   salary_min = st.number_input("Minimum Salary (₮)", min_value=0, value=0, step=100000)
+                   salary_min = st.number_input("Minimum Salary (₮)", min_value=0, value=0, step=100000, disabled=True)
 
          else:
-              st.info("Load job data first to enable filters.")
+              st.info("Job data could not be loaded to enable filters.")
               salary_min = st.number_input("Minimum Salary (₮)", min_value=0, value=0, step=100000, disabled=True)
 
 
@@ -360,55 +406,88 @@ if app_mode == "Resume-to-Job Matching":
             st.markdown('<div class="sub-header">📄 Upload Your Resume</div>', unsafe_allow_html=True)
             uploaded_file = st.file_uploader("", type=["pdf", "docx"])
 
+            # Process uploaded file
             if uploaded_file:
-                # Extract resume text with progress indication
-                with st.spinner("Processing resume..."):
-                    if uploaded_file.name.endswith(".pdf"):
-                        resume_text = extract_text_from_pdf(uploaded_file)
-                    elif uploaded_file.name.endswith(".docx"):
-                        resume_text = extract_text_from_docx(uploaded_file)
-                    else:
-                        st.error("Unsupported file format.")
-                        resume_text = ""
+                # Use a unique key for the file uploader across reruns if needed for state, but Streamlit handles it well here
+                # Process the file only if it's a new file or hasn't been processed yet
+                if 'last_uploaded_resume_id' not in st.session_state or st.session_state.last_uploaded_resume_id != uploaded_file.file_id:
+                     st.session_state.last_uploaded_resume_id = uploaded_file.file_id # Store identifier
+                     st.session_state.resume_text = "" # Clear previous results to show processing
+                     st.session_state.resume_analysis = None
+                     st.session_state.skills_extracted = []
+                     st.session_state.resume_analysis_semantic = None # Clear semantic analysis results
 
-                    # Store in session state
-                    st.session_state.resume_text = resume_text
+                     with st.spinner("Processing resume..."):
+                         try:
+                             if uploaded_file.name.endswith(".pdf"):
+                                 resume_text = extract_text_from_pdf(uploaded_file)
+                             elif uploaded_file.name.endswith(".docx"):
+                                 resume_text = extract_text_from_docx(uploaded_file)
+                             else:
+                                 st.error("Unsupported file format.")
+                                 resume_text = ""
 
-                    # Analyze resume (basic)
-                    resume_analysis = analyze_resume(resume_text) # Uses the basic analyze_resume from resume_parser
-                    st.session_state.resume_analysis = resume_analysis
+                             # Store extracted text
+                             st.session_state.resume_text = resume_text
 
-                    # Extract skills (basic)
-                    st.session_state.skills_extracted = extract_skills_basic(resume_text) # Uses basic skill extractor
+                             # Analyze resume (basic)
+                             if resume_text and "Error extracting" not in resume_text:
+                                 resume_analysis_basic = analyze_resume(resume_text) # Uses the basic analyze_resume from resume_parser
+                                 st.session_state.resume_analysis = resume_analysis_basic # Store basic analysis
 
-                # Display extracted text in an expandable section
+                                 # Extract skills (basic)
+                                 st.session_state.skills_extracted = extract_skills_basic(resume_text) # Uses basic skill extractor
+
+                                 # Run semantic analysis upon upload if available
+                                 if SEMANTIC_MATCHER_AVAILABLE:
+                                      try:
+                                           # Calls semantic_matcher.analyze_resume
+                                           semantic_analysis_results = analyze_resume_skills(resume_text)
+                                           st.session_state.resume_analysis_semantic = semantic_analysis_results # Store semantic analysis results
+                                           logger.info("Semantic resume analysis complete upon upload.")
+                                      except Exception as se:
+                                           logger.error("❌ Error during semantic resume analysis upon upload.", exc_info=True)
+                                           st.warning("❌ Error during semantic resume analysis upon upload. Some features might be affected.")
+                                           st.session_state.resume_analysis_semantic = None # Ensure state is cleared on error
+
+
+                             elif "Error extracting" in resume_text:
+                                  st.error(resume_text)
+                                  st.session_state.resume_text = "" # Clear text on extraction error
+                             else:
+                                 st.error("❌ Failed to extract any text from the resume.")
+                                 logger.warning("Extraction resulted in empty text.")
+                                 st.session_state.resume_text = "" # Clear text on empty extraction
+
+                         except Exception as e:
+                             logger.error("❌ An unexpected error occurred during resume upload and processing.", exc_info=True)
+                             st.error("❌ An unexpected error occurred during resume processing. Please check logs.")
+                             st.exception(e)
+                             st.session_state.resume_text = "" # Clear text on unexpected error
+
+
+                # Display extracted text in an expandable section (if text exists after processing)
                 if st.session_state.resume_text and "Error extracting" not in st.session_state.resume_text:
                      with st.expander("View Extracted Resume Text", expanded=False):
                          st.text_area("", st.session_state.resume_text, height=200)
-                elif "Error extracting" in st.session_state.resume_text:
-                     st.error(st.session_state.resume_text)
-                else:
-                     st.warning("No text extracted from resume.")
+                # Error messages for extraction are shown above during processing
 
 
         with col2:
-            if st.session_state.resume_analysis:
-                # Display resume stats (from basic analysis)
+            if st.session_state.resume_analysis: # Only display stats if basic analysis is available
+                # Display resume stats (from basic analysis and semantic analysis if available)
                 st.markdown('<div class="sub-header">📊 Resume Stats</div>', unsafe_allow_html=True)
 
-                # Resume completeness score (using the score from the basic analyze_resume)
-                # Note: The old app.py used the semantic completeness score here.
-                # Let's use the score from the basic analyze_resume if it calculates one,
-                # or add a simple length-based heuristic if not. The current analyze_resume_basic doesn't have a score.
-                # Let's add a simple word count heuristic as a placeholder stat if no specific score is calculated by basic analysis.
-                word_count = len(st.session_state.resume_text.split()) if st.session_state.resume_text else 0
-                st.markdown(f"**Resume Word Count:** {word_count}")
-
+                # Resume completeness score - Use the one calculated by semantic analysis if available
+                semantic_analysis_results = st.session_state.get('resume_analysis_semantic', {}) # Get stored semantic analysis results
+                completeness = semantic_analysis_results.get('completeness', 0) # Get semantic completeness score
+                st.markdown(f"**Keyword Completeness:** {completeness:.1f}%") # Label as Keyword Completeness
+                st.progress(completeness/100)
 
                 # Resume sections found (from basic analysis)
-                st.markdown("**Detected Sections (Basic):**")
-                sections = st.session_state.resume_analysis.get('sections', {})
-                section_list = [s.title() for s in sections if s not in ['Header', 'other', 'content'] and sections[s].strip()]
+                st.markdown("**Detected Sections (Basic Parser):**")
+                sections_basic = st.session_state.resume_analysis.get('sections', {})
+                section_list = [s.title() for s in sections_basic if s not in ['Header', 'other', 'content'] and sections_basic[s].strip()]
                 if section_list:
                      st.markdown(", ".join(section_list))
                 else:
@@ -418,7 +497,7 @@ if app_mode == "Resume-to-Job Matching":
                 # Skills extracted (basic skills)
                 st.markdown("**Extracted Skills (Basic):**")
                 if st.session_state.skills_extracted:
-                     # Display skills as tags (using the HTML formatting from the old app.py)
+                     # Display skills as tags
                      skill_tags = ''.join([
                          f'<span style="background-color: #f0f2f6; padding: 3px 8px; margin: 2px; border-radius: 10px; display: inline-block; font-size: 0.9em;">{skill}</span>'
                          for skill in st.session_state.skills_extracted[:10] # Display top 10
@@ -430,33 +509,16 @@ if app_mode == "Resume-to-Job Matching":
                 else:
                      st.info("No skills detected by basic method.")
 
-        # Job matching section (only if resume uploaded and jobs loaded)
-        if st.session_state.resume_text and not jobs_df.empty:
+        # Job matching section (only if resume text exists and jobs loaded)
+        if st.session_state.resume_text and "Error extracting" not in st.session_state.resume_text and not jobs_df.empty:
             st.markdown('<div class="sub-header">🔎 Find Matching Jobs</div>', unsafe_allow_html=True)
 
             col1, col2 = st.columns([3, 1])
 
             with col1:
-                # Job sector filter (using sector_options from your old app.py)
-                # Define sector_options dictionary
-                sector_options = {
-                    "Education & Management": ["багш", "сургалт", "удирдлага", "education", "teacher", "lecturer", "professor", "academic"],
-                    "Customer Service": ["customer service", "үйлчилгээ", "захиалга", "client", "support", "help desk", "call center"],
-                    "Leadership": ["менежер", "захирал", "manager", "director", "executive", "chief", "head of", "supervisor"],
-                    "Tech & Development": ["developer", "инженер", "програм", "software", "programmer", "coder", "IT", "tech", "web", "mobile"],
-                    "Creative & Marketing": ["дизайн", "сошиал", "контент", "media", "designer", "creative", "marketing", "brand", "SEO", "content"],
-                    "Finance": ["нягтлан", "санхүү", "finance", "accountant", "accounting", "financial", "budget", "tax", "banking"],
-                    "Healthcare": ["эмч", "сувилагч", "health", "эрүүл мэнд", "doctor", "nurse", "medical", "healthcare", "clinic", "hospital"],
-                    "Logistics & Support": ["logistics", "тээвэр", "нярав", "туслах", "warehouse", "shipping", "supply chain", "inventory"],
-                    "Data & AI": ["data analyst", "data scientist", "AI", "мэдээлэл шинжээч", "machine learning", "analytics", "big data", "statistics"],
-                    "HR & Recruitment": ["HR", "хүний нөөц", "recruiter", "talent", "hiring", "recruitment", "personnel", "staffing"],
-                    "Legal & Compliance": ["хууль", "lawyer", "legal", "compliance", "attorney", "law", "regulatory", "contracts"],
-                    "Sales": ["борлуулалт", "sales", "зөвлөх", "business development", "account manager", "retail", "revenue"],
-                    "Project Management": ["төслийн менежер", "project manager", "project coordinator", "scrum", "agile", "program manager"],
-                    "Engineering & Construction": ["механик", "цахилгаан", "civil", "барилга", "engineer", "mechanical", "electrical", "construction"]
-                }
+                # Job sector filter (using sector_options)
                 selected_sectors = st.multiselect(
-                    "Filter by job sector(s)",
+                    "Filter job results by sector(s)", # Clarified label
                     options=list(sector_options.keys()),
                     placeholder="Choose one or more sectors..."
                 )
@@ -472,6 +534,7 @@ if app_mode == "Resume-to-Job Matching":
                 top_n = st.slider("Number of results", min_value=5, max_value=50, value=10, step=5) # Increased max to 50
 
                 # Match button
+                # Use a key to reset button state on file upload if needed, but find_jobs logic below handles re-running
                 find_jobs = st.button("🔍 Find Matching Jobs", type="primary", use_container_width=True)
 
             # --- Matching Logic ---
@@ -481,13 +544,13 @@ if app_mode == "Resume-to-Job Matching":
                     # Filter jobs by selected keywords if any
                     filtered_jobs = jobs_df.copy() # Work on a copy
                     if selected_keywords:
-                        # Use regex for broad matching across title and description
+                        # Use regex for broad matching across title, description, and requirements
                         pattern = '|'.join(re.escape(kw) for kw in selected_keywords) # Escape special characters
                         # Ensure columns are string type before applying str.contains
                         filtered_jobs = filtered_jobs[
                             filtered_jobs["Job title"].fillna('').astype(str).str.lower().str.contains(pattern, na=False) |
                             filtered_jobs["Job description"].fillna('').astype(str).str.lower().str.contains(pattern, na=False) |
-                            filtered_jobs["Requirements"].fillna('').astype(str).str.lower().str.contains(pattern, na=False) # Also check requirements
+                            filtered_jobs["Requirements"].fillna('').astype(str).str.lower().str.contains(pattern, na=False)
                         ]
 
                     # If no jobs match the filters, show a message
@@ -499,6 +562,7 @@ if app_mode == "Resume-to-Job Matching":
                         # Ensure Semantic Matcher is available before calling
                         if SEMANTIC_MATCHER_AVAILABLE:
                              start_time = time.time()
+                             # Call semantic_match_resume with the filtered DataFrame
                              results = semantic_match_resume(st.session_state.resume_text, filtered_jobs, top_n=top_n)
                              matching_time = time.time() - start_time
 
@@ -530,22 +594,31 @@ if app_mode == "Resume-to-Job Matching":
 
 
             # --- Display Job Results ---
-            # Display if results are in session state
+            # Display if results are in session state and not empty
             if st.session_state.job_results is not None and not st.session_state.job_results.empty:
                 st.markdown('<div class="sub-header">✅ Top Matching Jobs</div>', unsafe_allow_html=True)
 
                 # Get resume skills for matching (using basic skills for detailed view)
-                resume_skills = st.session_state.skills_extracted # Use basic skills from session state
+                resume_skills_basic = st.session_state.skills_extracted # Use basic skills from session state
 
                 # Create tabs for different views
                 tab1, tab2 = st.tabs(["List View", "Detailed View"])
 
                 with tab1:
-                    # Create a dataframe for display
-                    display_df = st.session_state.job_results[['Job title', 'Company', 'Salary', 'match_score']].copy()
-                    display_df['match_score'] = display_df['match_score'].round(1).astype(str) + '%'
-                    # Optional: Add link column if URL is available and display as clickable link (more complex in st.dataframe)
-                    st.dataframe(display_df, use_container_width=True, hide_index=True) # Hide index
+                    st.dataframe(
+                        st.session_state.job_results[['Job title', 'Company', 'Salary', 'match_score']],
+                        use_container_width=True,
+                        hide_index=True,
+                        column_config={ # Format match score for display
+                            'match_score': st.column_config.ProgressColumn(
+                                "Match Score (%)",
+                                help="Semantic match score between your resume and the job description.",
+                                format="%0.1f",
+                                min_value=0,
+                                max_value=100,
+                            )
+                        }
+                    )
 
                 with tab2:
                     # Show detailed job cards
@@ -556,23 +629,32 @@ if app_mode == "Resume-to-Job Matching":
 
                             # Get matched and missing skills (uses get_skill_matches from semantic_matcher if available)
                             # Fallback gracefully if semantic matcher is not available
+                            matched_skills, missing_skills = [], [] # Initialize empty lists
                             if SEMANTIC_MATCHER_AVAILABLE:
-                                matched_skills, missing_skills = get_skill_matches(resume_skills, job_text)
+                                try:
+                                     # Use get_skill_matches which compares basic resume skills vs semantic job skills
+                                    matched_skills, missing_skills = get_skill_matches(resume_skills_basic, job_text)
+                                except Exception as e:
+                                     logger.warning(f"Error getting skill matches for detailed view: {e}", exc_info=True)
+                                     st.warning("Error getting skill matches for this job.")
+                                     # Fallback to basic check if semantic matcher is available but fails
+                                     matched_skills = [s for s in resume_skills_basic if s.lower() in job_text.lower()]
+                                     job_skills_basic_fallback = extract_skills_basic(job_text)
+                                     missing_skills = [s for s in job_skills_basic_fallback if s.lower() not in [rs.lower() for rs in resume_skills_basic]]
+
                             else:
-                                # Simple fallback for display if semantic matcher is off
-                                matched_skills = [s for s in resume_skills if s.lower() in job_text.lower()]
-                                missing_skills = [s for s in extract_skills_basic(job_text) if s.lower() not in [rs.lower() for rs in resume_skills]]
+                                # Fallback to basic extraction and comparison if semantic_matcher is not available at all
                                 st.warning("Semantic Matcher not available, showing basic skill overlap.")
+                                matched_skills = [s for s in resume_skills_basic if s.lower() in job_text.lower()]
+                                job_skills_basic_fallback = extract_skills_basic(job_text) # Extract job skills using basic method
+                                missing_skills = [s for s in job_skills_basic_fallback if s.lower() not in [rs.lower() for rs in resume_skills_basic]]
 
 
                             # Format match score with color
                             match_score = row['match_score']
-                            if match_score >= 80:
-                                match_class = "match-score-high"
-                            elif match_score >= 60:
-                                match_class = "match-score-medium"
-                            else:
-                                match_class = "match-score-low"
+                            if match_score >= 80: match_class = "match-score-high"
+                            elif match_score >= 60: match_class = "match-score-medium"
+                            else: match_class = "match-score-low"
 
                             # Job card display
                             st.markdown(f'<div class="job-title">{i+1}. {row["Job title"]}</div>', unsafe_allow_html=True)
@@ -581,10 +663,11 @@ if app_mode == "Resume-to-Job Matching":
                             st.markdown(f'**Match Score:** <span class="{match_class}">{match_score:.1f}%</span>', unsafe_allow_html=True)
 
                             # Job URL
-                            if row.get('URL') and pd.notna(row['URL']) and row['URL'].strip() != '#':
-                                 st.markdown(f"[🔗 View Job Posting]({row['URL']})")
+                            job_url = row.get('URL')
+                            if job_url and pd.notna(job_url) and str(job_url).strip() != '#' and str(job_url).startswith('http'):
+                                 st.markdown(f"[🔗 View Job Posting]({job_url})")
                             else:
-                                 st.info("Job posting URL not available.")
+                                 st.info("Job posting URL not available or invalid.")
 
 
                             # Matched and Missing Skills (using HTML formatting)
@@ -593,12 +676,17 @@ if app_mode == "Resume-to-Job Matching":
                                             ', '.join(matched_skills[:8]) +
                                             (f' (+{len(matched_skills)-8} more)' if len(matched_skills) > 8 else '') +
                                             '</div>', unsafe_allow_html=True)
+                            else:
+                                 st.info("No specific matched skills found in job description (based on extracted skills).")
+
 
                             if missing_skills:
                                 st.markdown('<div class="missing-keywords">🔴 <b>Missing skills:</b> ' +
                                             ', '.join(missing_skills[:8]) +
                                             (f' (+{len(missing_skills)-8} more)' if len(missing_skills) > 8 else '') +
                                             '</div>', unsafe_allow_html=True)
+                            else:
+                                 st.info("You appear to have all the key skills mentioned in the job description (based on extracted skills).")
 
 
                             # Expandable job description
@@ -609,17 +697,12 @@ if app_mode == "Resume-to-Job Matching":
                                 st.markdown("#### Requirements")
                                 st.markdown(row.get("Requirements", "No requirements specified"))
 
-                        # No need for closing </div> if using st.container(border=True)
-                        # st.markdown('</div>', unsafe_allow_html=True)
-                        # No need for HR if using container borders
-                        # st.markdown("---")
-
 
                 # --- Download results ---
                 # Only show download if there are results
                 output = io.BytesIO()
-                # Use display_df or a filtered version if only specific columns are desired in download
-                download_df = st.session_state.job_results[['Job title', 'Company', 'Salary', 'match_score', 'URL', 'Job description', 'Requirements']] # Include full job info
+                # Include full job info in download
+                download_df = st.session_state.job_results[['Job title', 'Company', 'Salary', 'match_score', 'URL', 'Job description', 'Requirements']]
                 with pd.ExcelWriter(output, engine="openpyxl") as writer:
                     download_df.to_excel(writer, index=False)
                 output.seek(0)
@@ -641,33 +724,38 @@ if app_mode == "Resume-to-Job Matching":
                 # Iterate through the matched jobs to collect all missing skills
                 for _, row in st.session_state.job_results.iterrows():
                     job_text = str(row.get("Job description", "")) + " " + str(row.get("Requirements", ""))
-                     # Use semantic_matcher's get_skill_matches if available, else basic logic
+                     # Use semantic_matcher's get_skill_matches if available, else fallback
                     if SEMANTIC_MATCHER_AVAILABLE:
-                        _, missing = get_skill_matches(resume_skills, job_text) # Use get_skill_matches
+                        try:
+                           # Use get_skill_matches which compares basic resume skills vs semantic job skills
+                            _, missing = get_skill_matches(resume_skills_basic, job_text)
+                            all_missing_skills.extend(missing)
+                        except Exception:
+                             pass # Silently fail getting missing skills for tips if get_skill_matches has an issue
                     else:
                         # Fallback missing skill calculation if semantic matcher is off
-                        job_skills_basic_for_missing = extract_skills_basic(job_text)
-                        resume_skills_lower = [rs.lower() for rs in resume_skills]
-                        missing = [s for s in job_skills_basic_for_missing if s.lower() not in resume_skills_lower]
+                        job_skills_basic_fallback = extract_skills_basic(job_text)
+                        resume_skills_basic_lower = [rs.lower() for rs in resume_skills_basic]
+                        missing = [s for s in job_skills_basic_fallback if s.lower() not in resume_skills_basic_lower]
+                        all_missing_skills.extend(missing)
 
-                    all_missing_skills.extend(missing)
 
                 # Count most common missing skills across all top matches
                 from collections import Counter
                 # Use lowercase for counting consistency, but display original case
-                common_missing_lower = Counter([s.lower() for s in all_missing_skills]).most_common(5)
+                if all_missing_skills:
+                     common_missing_lower = Counter([s.lower() for s in all_missing_skills]).most_common(5)
 
-                if common_missing_lower:
-                    st.markdown("#### Top Skills to Add Based on Matched Jobs:")
-                    # Map back to original casing from the collected missing skills list for display
-                    # This requires iterating through the original list to find casing
-                    original_cased_missing = list(set(all_missing_skills)) # Get unique missing skills in original casing
+                     st.markdown("#### Top Skills to Add Based on Matched Jobs:")
+                     # Map back to original casing from the collected missing skills list for display
+                     # This requires iterating through the original list to find casing
+                     original_cased_missing = list(set(all_missing_skills)) # Get unique missing skills in original casing
 
-                    for skill_lower, count in common_missing_lower:
-                         # Find the first occurrence of the original case for this skill
-                         original_skill = next((s for s in original_cased_missing if s.lower() == skill_lower), skill_lower) # Fallback to lowercase if not found
+                     for skill_lower, count in common_missing_lower:
+                          # Find the first occurrence of the original case for this skill
+                          original_skill = next((s for s in original_cased_missing if s.lower() == skill_lower), skill_lower) # Fallback to lowercase if not found
 
-                         st.markdown(f"- **{original_skill}** (mentioned in {count} job{'s' if count > 1 else ''})")
+                          st.markdown(f"- **{original_skill}** (mentioned in {count} job{'s' if count > 1 else ''})")
                 else:
                     st.info("No frequently missing skills identified across the top job matches.")
 
@@ -687,43 +775,19 @@ if app_mode == "Resume-to-Job Matching":
 # --- "Resume Analysis" Mode (from your old app.py) ---
 elif app_mode == "Resume Analysis":
      # Ensure resume is uploaded before showing analysis
-     if 'resume_text' not in st.session_state or not st.session_state.resume_text:
-          st.info("👆 Please upload your resume first (in the 'Resume-to-Job Matching' tab) to get an analysis.")
+     if 'resume_text' not in st.session_state or not st.session_state.resume_text or "Error extracting" in st.session_state.resume_text:
+          if "Error extracting" in st.session_state.resume_text:
+               st.error(st.session_state.resume_text)
+          else:
+               st.info("👆 Please upload and process your resume first (in the 'Resume-to-Job Matching' tab) to get an analysis.")
      else:
           st.markdown('<div class="sub-header">📊 Resume Analyzer</div>', unsafe_allow_html=True)
           st.write("Detailed analysis of your resume content and structure.")
 
-          # Analyze resume using *both* analysis functions
-          # analyze_resume from resume_parser (basic section/contact/skills)
-          # analyze_resume (aliased analyze_resume_skills) from semantic_matcher (semantic keywords/skills/section keyword counts)
-
-          # Use cached results if available, otherwise run analysis
-          # Note: analysis functions are run in the 'Resume-to-Job Matching' mode upon upload.
-          # We can potentially just use the stored results here.
+          # Get stored analysis results (basic and semantic if available)
           resume_analysis_basic = st.session_state.get('resume_analysis', {})
-          # The old app.py seemed to run analyze_resume_skills (semantic analysis) specifically in this tab too.
-          # Let's re-run it here to match that behavior, or ensure it's run upon upload and stored.
-          # To match the old app.py's likely flow, let's ensure semantic keywords are stored upon upload.
-          # The 'Resume-to-Job Matching' upload logic already stores 'resume_analysis_basic' and 'resume_analysis_semantic_keywords'.
-          # We can use those stored results here.
-          resume_analysis_semantic_keywords = st.session_state.get('resume_analysis_semantic_keywords', []) # This is just keywords
+          semantic_analysis_results = st.session_state.get('resume_analysis_semantic', {})
 
-          # To get the other semantic analysis details (sections by keyword, completeness), we'd need to run semantic_matcher.analyze_resume
-          # Let's run semantic_matcher.analyze_resume here if needed, or adjust the upload logic to store its result.
-          # Given the old app.py's import 'analyze_resume as analyze_resume_skills' from semantic_matcher, and its use here,
-          # it was likely intended to call the semantic_matcher's analyze_resume function.
-          # Let's run the semantic analysis function again in this tab if semantic matcher is available.
-
-          semantic_analysis_results = None
-          if SEMANTIC_MATCHER_AVAILABLE:
-              with st.spinner("Running semantic analysis for Analyzer tab..."):
-                  try:
-                      # Call the semantic analysis function (analyze_resume from semantic_matcher)
-                      # This function returns skills, keywords, section keyword counts, completeness
-                      semantic_analysis_results = analyze_resume_skills(st.session_state.resume_text) # Calls semantic_matcher.analyze_resume
-                  except Exception as e:
-                      logger.error("Error running semantic analysis for Analyzer tab.", exc_info=True)
-                      st.warning("Could not run semantic analysis for the Analyzer tab.")
 
           # Display analysis results
           if resume_analysis_basic or semantic_analysis_results: # Display if at least one analysis worked
@@ -737,16 +801,10 @@ elif app_mode == "Resume Analysis":
                   col1, col2, col3 = st.columns(3)
 
                   with col1:
-                      # Completeness score - Use the one calculated by semantic analysis if available, else a basic length heuristic
-                      completeness = 0
-                      if semantic_analysis_results and 'completeness' in semantic_analysis_results:
-                           completeness = semantic_analysis_results['completeness']
-                           st.metric("Keyword Completeness", f"{completeness:.1f}%")
-                           st.progress(completeness/100)
-                      else:
-                           # Basic word count placeholder if semantic analysis failed
-                           word_count = len(st.session_state.resume_text.split()) if st.session_state.resume_text else 0
-                           st.metric("Resume Word Count", word_count)
+                      # Completeness score - Use the one calculated by semantic analysis if available
+                      completeness = semantic_analysis_results.get('completeness', 0) if semantic_analysis_results else 0
+                      st.metric("Keyword Completeness", f"{completeness:.1f}%") # Label clearly
+                      st.progress(completeness/100)
 
 
                   with col2:
@@ -770,22 +828,18 @@ elif app_mode == "Resume Analysis":
 
                   # Contact information (from basic analysis)
                   st.markdown("#### Contact Information")
-                  contact_info = resume_analysis_basic.get('contact_info', {}) # Basic analysis doesn't have contact_info in our version?
-                  # Let's use the regex method directly here if analyze_resume_basic doesn't return contact_info
+                  # Re-extract contact info here using basic regex, as analyze_resume_basic doesn't return it in our version
                   import re
-                  email_matches = re.findall(r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b', st.session_state.resume_text)
-                  phone_matches = re.findall(r'(?:(?:\+?\d{1,3}[-.\s]?)?(?:\(?\d{3}\)?[-.\s]?|\d{3}[-.\s]?)\d{3}[-.\s]?\d{4}(?:\s*(?:ext|x|extn|extension)\s*\d+)?|\(\d{3}\)\s*\d{3}[-.\s]?\d{4}|\d{3}[-.\s]?\d{4})', st.session_state.resume_text)
-                  # Old app.py also checked linkedin - let's add that regex
-                  linkedin_matches = re.findall(r'linkedin\.com/in/[\w-]+', st.session_state.resume_text.lower())
+                  resume_text_for_contact = st.session_state.get('resume_text', '')
+                  email_matches = re.findall(r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b', resume_text_for_contact)
+                  phone_matches = re.findall(r'(?:(?:\+?\d{1,3}[-.\s]?)?(?:\(?\d{3}\)?[-.\s]?|\d{3}[-.\s]?)\d{3}[-.\s]?\d{4}(?:\s*(?:ext|x|extn|extension)\s*\d+)?|\(\d{3}\)\s*\d{3}[-.\s]?\d{4}|\d{3}[-.\s]?\d{4})', resume_text_for_contact)
+                  linkedin_matches = re.findall(r'linkedin\.com/in/[\w-]+', resume_text_for_contact.lower())
 
 
                   if email_matches or phone_matches or linkedin_matches:
                        if email_matches: st.write(f"📧 Email: {email_matches[0]}")
                        if phone_matches: st.write(f"📱 Phone: {phone_matches[0]}")
                        if linkedin_matches: st.write(f"🔗 LinkedIn: {linkedin_matches[0]}")
-                       # Note: Location extraction was in the old analyze_resume (2nd file), not our basic one.
-                       # To add location, we'd need to re-implement or adapt extract_contact_info from the 2nd old file.
-                       # Let's skip location for now to keep it clean.
                   else:
                        st.warning("No contact information detected. Make sure your resume includes clear contact details.")
 
@@ -811,12 +865,13 @@ elif app_mode == "Resume Analysis":
 
 
                   # Keywords visualization (from semantic analysis if available)
-                  st.markdown("##### Keywords:")
+                  st.markdown("##### Keywords (Semantic):")
                   keywords_to_display = semantic_analysis_results.get('keywords', []) if semantic_analysis_results else []
 
                   if keywords_to_display:
                       # Create a word frequency dictionary for visualization
                       # Use Counter directly on the list, then slice
+                      from collections import Counter
                       word_freq = Counter(keywords_to_display).most_common(20) # Top 20 keywords
 
                       # Create horizontal bar chart
@@ -870,7 +925,9 @@ elif app_mode == "Resume Analysis":
                        st.markdown("##### Section Keyword Presence (Semantic Check):")
                        section_keyword_counts = semantic_analysis_results['sections']
                        if any(section_keyword_counts.values()): # Check if any count is > 0
-                           for section, count in section_keyword_counts.items():
+                           # Sort sections by count descending
+                           sorted_sections = sorted(section_keyword_counts.items(), key=lambda item: item[1], reverse=True)
+                           for section, count in sorted_sections:
                                 st.write(f"- **{section.title()}**: {count} relevant keyword{ 's' if count != 1 else '' } found")
                        else:
                            st.info("No section-related keywords found.")
@@ -898,23 +955,33 @@ elif app_mode == "Resume Analysis":
                           if missing_sections_semantic:
                                st.markdown("Based on keywords, these sections seem underrepresented or missing:")
                                for section in missing_sections_semantic:
-                                    st.markdown(f"- **{section.title()}**")
+                                    st.markdown(f"- **{section.title()}** section")
 
 
-                  # Skills suggestions (based on skills extracted by semantic analysis)
-                  skills_semantic = semantic_analysis_results.get('skills', []) if semantic_analysis_results else []
-                  if SEMANTIC_MATCHER_AVAILABLE and len(skills_semantic) < 10:
-                      st.markdown("##### 🔶 Skills Recommendations:")
-                      st.markdown(f"Only {len(skills_semantic)} specific skills detected by the semantic method.")
-                      st.markdown("""
-                      - Ensure your skills section uses clear and specific terms.
-                      - Include both technical and soft skills relevant to your field.
-                      - Consider adding skill levels (e.g., "Proficient in Python").
-                      """)
+                  # Skills suggestions (based on skills extracted by semantic analysis if available, else basic)
+                  skills_semantic_for_tips = semantic_analysis_results.get('skills', []) if semantic_analysis_results else []
+                  skills_basic_for_tips = resume_analysis_basic.get('skills', [])
+
+                  if SEMANTIC_MATCHER_AVAILABLE:
+                       if len(skills_semantic_for_tips) < 10:
+                            st.markdown("##### 🔶 Skills Recommendations:")
+                            st.markdown(f"Only {len(skills_semantic_for_tips)} specific skills detected by the semantic method.")
+                            st.markdown("""
+                            - Ensure your skills section uses clear and specific terms.
+                            - Include both technical and soft skills relevant to your field.
+                            - Consider adding skill levels (e.g., "Proficient in Python").
+                            """)
                   elif not SEMANTIC_MATCHER_AVAILABLE:
                        st.markdown("##### 🔶 Skills Recommendations:")
                        st.warning("Semantic Matcher is not available, skill analysis is limited.")
                        st.markdown("Ensure your skills section clearly lists your proficiencies.")
+                  # Add a tip if very few skills detected by basic method even if semantic isn't available
+                  if not SEMANTIC_MATCHER_AVAILABLE and len(skills_basic_for_tips) < 10:
+                       st.markdown(f"Only {len(skills_basic_for_tips)} specific skills detected by the basic method.")
+                       st.markdown("""
+                       - Add more relevant skills to your resume.
+                       - Ensure skills are explicitly listed, not just mentioned in descriptions.
+                       """)
 
 
                   # Content analysis tips
@@ -943,10 +1010,13 @@ elif app_mode == "Resume Analysis":
 
           elif st.session_state.resume_text and "Error extracting" not in st.session_state.resume_text:
                st.info("Could not perform resume analysis. Check logs for errors during analysis.")
-          elif "Error extracting" in st.session_state.resume_text:
-               st.error(st.session_state.resume_text)
-          else:
+          # Extraction errors are shown above during upload processing
+          # elif "Error extracting" in st.session_state.resume_text:
+          #      st.error(st.session_state.resume_text)
+          # Handle case where no text was extracted successfully
+          elif st.session_state.resume_text == "":
                st.warning("Upload and process a resume first.")
+
 
 
 # --- "Job Market Explorer" Mode (from your old app.py) ---
@@ -964,14 +1034,21 @@ elif app_mode == "Job Market Explorer":
         # Apply salary filter
         if salary_min > 0:
              # Re-calculate numeric salary for filtering (as in the sidebar logic)
+             # Use re from imports
              def extract_salary_numeric(salary_str):
-                  if pd.isna(salary_str) or salary_str == 'Not specified': return 0
-                  try: return int(re.sub(r'\D', '', str(salary_str)))
-                  except: return 0
+                  if pd.isna(salary_str) or str(salary_str).strip() == '' or str(salary_str).lower() == 'not specified': return 0 # Handle empty/None/string
+                  try:
+                       # Find all numbers in the string
+                       numbers = re.findall(r'\d+', str(salary_str))
+                       if numbers:
+                            # Assuming salary is a single number or a range (take the first number found)
+                            return int(numbers[0])
+                       return 0
+                  except: return 0 # Return 0 on any conversion error
 
              # Create a numeric salary column for filtering on the copy
              filtered_jobs['salary_value'] = filtered_jobs['Salary'].apply(extract_salary_numeric)
-             filtered_jobs = filtered_jobs[filtered_jobs['salary_value'] >= salary_min]
+             filtered_jobs = filtered_jobs[filtered_jobs['salary_value'] >= salary_min].drop(columns=['salary_value']) # Drop temp column after filter
 
 
         # Show statistics and visualizations
@@ -984,15 +1061,7 @@ elif app_mode == "Job Market Explorer":
             with col1:
                 st.markdown("#### Job Count by Sector")
 
-                # Classify jobs into sectors (using sector_options from your old app.py)
-                # Define sector_options dictionary again if not globally accessible (or define it globally)
-                # Let's define it globally near the other global definitions
-                # ... (sector_options dictionary definition should be moved to global scope)
-                # Note: The old app.py defined sector_options before this section. Let's move it to the top.
-                # (Self-correction: sector_options is already defined in the 'Resume-to-Job Matching' section.
-                # It needs to be defined *outside* the modes if used in multiple modes/sidebar.
-                # Let's move sector_options definition near the job loading).
-
+                # Classify jobs into sectors (using sector_options)
                 def classify_job(job_title, job_desc, reqs): # Added reqs based on filtering logic
                      title = str(job_title).lower()
                      desc = str(job_desc).lower()
@@ -1050,45 +1119,54 @@ elif app_mode == "Job Market Explorer":
 
             # Show job listing table
             st.markdown("#### Available Job Listings")
-            # Select relevant columns and format match_score if needed (not applicable in explorer, just list)
+            # Select relevant columns for display
             display_cols_explorer = ['Job title', 'Company', 'Salary', 'URL'] # Include URL in display
-            if 'salary_value' in filtered_jobs.columns: # Drop temporary column
-                 filtered_jobs_display = filtered_jobs.drop(columns=['salary_value', 'sector'])
-            else:
-                 filtered_jobs_display = filtered_jobs.drop(columns=['sector'])
+
+            # Ensure selected columns exist before selecting them
+            cols_to_display = [col for col in display_cols_explorer if col in filtered_jobs.columns]
 
             st.dataframe(
-                filtered_jobs_display[display_cols_explorer],
+                filtered_jobs[cols_to_display], # Use only existing columns
                 use_container_width=True,
                 hide_index=True,
                  # Optional: Format URL column if st.dataframe supports it directly, or use st.link_button in a loop
-                 # column_config={"URL": st.column_config.LinkColumn("URL")} # Example if using LinkColumn
+                 column_config={"URL": st.column_config.LinkColumn("URL")} # Example using LinkColumn
             )
 
             # Word cloud of job requirements
             st.markdown("#### Most In-Demand Skills")
 
-            # Extract and count skills from job descriptions for word cloud
-            # Use the semantic skill extraction method if available, otherwise simple tokenization
-            if SEMANTIC_MATCHER_AVAILABLE:
-                 logger.info("Using semantic_matcher.extract_skills_from_text for word cloud.")
-                 all_job_text_combined = " ".join(filtered_jobs['Job description'].fillna('') + " " + filtered_jobs['Requirements'].fillna(''))
-                 # This extraction gets a list of skills, not just raw text for wordcloud
-                 # Let's extract raw text for the wordcloud generator
-                 text_for_wordcloud = " ".join(filtered_jobs['Job description'].fillna('') + " " + filtered_jobs['Requirements'].fillna(''))
-            else:
-                 logger.warning("Semantic matcher not available, using raw text for word cloud.")
-                 text_for_wordcloud = " ".join(filtered_jobs['Job description'].fillna('') + " " + filtered_jobs['Requirements'].fillna(''))
-
+            # Extract text for word cloud
+            text_for_wordcloud = " ".join(filtered_jobs['Job description'].fillna('').astype(str) + " " + filtered_jobs['Requirements'].fillna('').astype(str))
 
             # Create word cloud
             try:
-                from wordcloud import WordCloud # Import here if not global
-                import matplotlib.pyplot as plt # Import here if not global
+                # Import libraries locally within the try block as in your old code's structure
+                from wordcloud import WordCloud
+                import matplotlib.pyplot as plt
+                from collections import Counter # Also needed for wordcloud if processing text
+
+                # Process text for wordcloud - remove stopwords, punctuation, etc.
+                # Using a simple process similar to extract_resume_keywords but for general text
+                words = re.findall(r'\w+', text_for_wordcloud.lower())
+                stop_words = set(stopwords.words('english'))
+                # Add Mongolian stopwords from semantic_matcher if imported
+                if 'semantic_matcher' in sys.modules:
+                     try:
+                          sm_module = sys.modules['semantic_matcher']
+                          if hasattr(sm_module, 'mongolian_stopwords'): # Check if the variable exists there
+                               stop_words.update(sm_module.mongolian_stopwords)
+                     except Exception: pass # Ignore if can't get mongolian stopwords
+
+                filtered_words = [word for word in words if word.isalpha() and word not in stop_words and len(word) > 2]
+                # Use filtered words list to generate wordcloud
+                cleaned_text_for_wordcloud = " ".join(filtered_words)
+
 
                 # Generate word cloud
+                # Pass the cleaned text
                 wordcloud = WordCloud(width=800, height=400, background_color='white',
-                                     colormap='viridis', max_words=100).generate(text_for_wordcloud)
+                                     colormap='viridis', max_words=100).generate(cleaned_text_for_wordcloud)
 
                 # Display the word cloud
                 fig, ax = plt.subplots(figsize=(10, 5))
@@ -1096,7 +1174,7 @@ elif app_mode == "Job Market Explorer":
                 ax.axis('off')
                 st.pyplot(fig)
             except ImportError:
-                st.warning("WordCloud package not installed. Install it (`pip install wordcloud matplotlib`) to see skill word cloud visualization.")
+                st.warning("WordCloud or Matplotlib package not installed. Install them (`pip install wordcloud matplotlib`) to see skill word cloud visualization.")
             except Exception as e:
                  logger.error(f"Error generating word cloud: {e}", exc_info=True)
                  st.warning(f"Could not generate word cloud: {e}")
@@ -1109,22 +1187,3 @@ st.markdown("""
     <p>Smart Job Matcher | Designed to help you find your perfect career match</p>
 </div>
 """, unsafe_allow_html=True)
-
-# --- Move global definitions to the top ---
-# sector_options dictionary should be defined globally before being used in modes
-sector_options = {
-    "Education & Management": ["багш", "сургалт", "удирдлага", "education", "teacher", "lecturer", "professor", "academic"],
-    "Customer Service": ["customer service", "үйлчилгээ", "захиалга", "client", "support", "help desk", "call center"],
-    "Leadership": ["менежер", "захирал", "manager", "director", "executive", "chief", "head of", "supervisor"],
-    "Tech & Development": ["developer", "инженер", "програм", "software", "programmer", "coder", "IT", "tech", "web", "mobile"],
-    "Creative & Marketing": ["дизайн", "сошиал", "контент", "media", "designer", "creative", "marketing", "brand", "SEO", "content"],
-    "Finance": ["нягтлан", "санхүү", "finance", "accountant", "accounting", "financial", "budget", "tax", "banking"],
-    "Healthcare": ["эмч", "сувилагч", "health", "эрүүл мэнд", "doctor", "nurse", "medical", "healthcare", "clinic", "hospital"],
-    "Logistics & Support": ["logistics", "тээвэр", "нярав", "туслах", "warehouse", "shipping", "supply chain", "inventory"],
-    "Data & AI": ["data analyst", "data scientist", "AI", "мэдээлэл шинжээч", "machine learning", "analytics", "big data", "statistics"],
-    "HR & Recruitment": ["HR", "хүний нөөц", "recruiter", "talent", "hiring", "recruitment", "personnel", "staffing"],
-    "Legal & Compliance": ["хууль", "lawyer", "legal", "compliance", "attorney", "law", "regulatory", "contracts"],
-    "Sales": ["борлуулалт", "sales", "зөвлөх", "business development", "account manager", "retail", "revenue"],
-    "Project Management": ["төслийн менежер", "project manager", "project coordinator", "scrum", "agile", "program manager"],
-    "Engineering & Construction": ["механик", "цахилгаан", "civil", "барилга", "engineer", "mechanical", "electrical", "construction"]
-}
