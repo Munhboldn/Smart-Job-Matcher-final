@@ -11,7 +11,7 @@ from collections import Counter
 from wordcloud import WordCloud, STOPWORDS
 import matplotlib.pyplot as plt
 
-# Define stopwords once, used consistently across the app
+# Define stopwords once
 stopwords = set(STOPWORDS)
 
 # --- Streamlit Page Config ---
@@ -29,19 +29,15 @@ logger = logging.getLogger("smart_job_matcher")
 if not logger.handlers:
     logging.basicConfig(level=logging.INFO)
 
-# --- Safe Imports ---
+# --- Import Modules ---
 try:
-    from resume_parser import extract_text_from_pdf, extract_text_from_docx, analyze_resume
+    from resume_parser import extract_text_from_pdf, extract_text_from_docx, analyze_resume, summarize_resume
 except ImportError:
     st.error("Resume parser module is missing.")
     st.stop()
 
 try:
-    from semantic_matcher import (
-        semantic_match_resume,
-        analyze_resume as analyze_resume_skills,
-        get_skill_matches
-    )
+    from semantic_matcher import semantic_match_resume, get_skill_matches
     SEMANTIC_OK = True
 except ImportError:
     SEMANTIC_OK = False
@@ -53,238 +49,159 @@ def init_session():
         'resume_text': '',
         'resume_analysis': None,
         'skills_extracted': [],
-        'job_results': None
+        'job_results': None,
+        'summary': None,
+        'selected_sectors': [],
+        'salary_min': 0
     }.items():
         if key not in st.session_state:
             st.session_state[key] = default
 init_session()
 
-# --- Load Jobs ---
-@st.cache_data(ttl=3600)
-def load_jobs():
-    try:
-        file_path = "data/zangia_filtered_jobs.csv"
-        if not os.path.exists(file_path):
-            st.warning("⚠️ Job data file is missing. Please upload or check the file path.")
-            raise FileNotFoundError("Job data file not found.")
-        df = pd.read_csv(file_path)
-        df['Salary'] = df['Salary'].fillna('Not specified')
-        df['Job description'] = df['Job description'].fillna('')
-        df['Requirements'] = df['Requirements'].fillna('')
-        return df
-    except Exception as e:
-        logger.error(f"Error loading job data from {file_path}: {e}")
-        return pd.DataFrame(columns=['Job title', 'Company', 'Salary', 'Job description', 'Requirements', 'URL'])
+# --- Sidebar Filters ---
+if st.session_state.resume_text:
+    st.sidebar.text_area("📄 Resume Preview", st.session_state.resume_text[:1000], height=120)
 
-jobs_df = load_jobs()
-
-# --- Define sector options (used in both modes) ---
-sector_options = {
-    "Education & Management": ["багш", "сургалт", "удирдлага", "education", "teacher", "lecturer", "professor", "academic"],
-    "Customer Service": ["customer service", "үйлчилгээ", "захиалга", "client", "support", "help desk", "call center"],
-    "Leadership": ["менежер", "захирал", "manager", "director", "executive", "chief", "head of", "supervisor"],
-    "Tech & Development": ["developer", "инженер", "програм", "software", "programmer", "coder", "IT", "tech", "web", "mobile"],
-    "Creative & Marketing": ["дизайн", "сошиал", "контент", "media", "designer", "creative", "marketing", "brand", "SEO", "content"],
-    "Finance": ["нягтлан", "санхүү", "finance", "accountant", "accounting", "financial", "budget", "tax", "banking"],
-    "Healthcare": ["эмч", "сувилагч", "health", "эрүүл мэнд", "doctor", "nurse", "medical", "healthcare", "clinic", "hospital"],
-    "Logistics & Support": ["logistics", "тээвэр", "нярав", "туслах", "warehouse", "shipping", "supply chain", "inventory"],
-    "Data & AI": ["data analyst", "data scientist", "AI", "мэдээлэл шинжээч", "machine learning", "analytics", "big data", "statistics"],
-    "HR & Recruitment": ["HR", "хүний нөөц", "recruiter", "talent", "hiring", "recruitment", "personnel", "staffing"],
-    "Legal & Compliance": ["хууль", "lawyer", "legal", "compliance", "attorney", "law", "regulatory", "contracts"],
-    "Sales": ["борлуулалт", "sales", "зөвлөх", "business development", "account manager", "retail", "revenue"],
-    "Project Management": ["төслийн менежер", "project manager", "project coordinator", "scrum", "agile", "program manager"],
-    "Engineering & Construction": ["механик", "цахилгаан", "civil", "барилга", "engineer", "mechanical", "electrical", "construction"]
-}
-
-# --- Sidebar ---
-st.sidebar.header("⚙️ Options")
-app_mode = st.sidebar.radio("Select Mode", ["Resume-to-Job Matching", "Resume Analysis", "Job Market Explorer"])
-salary_min = st.sidebar.number_input("Minimum Salary (₮)", 0, 10000000, 0, step=100000)
-st.sidebar.markdown("---")
-st.sidebar.write("#### About")
-st.sidebar.write("Smart Job Matcher helps you find jobs that match your skills and experience. Upload your resume and get personalized job recommendations.")
-
-# --- Resume-to-Job Matching ---
-if app_mode == "Resume-to-Job Matching":
-    st.header("📄 Upload Your Resume")
-    resume_file = st.file_uploader("", type=["pdf", "docx"])
-
+with st.sidebar.expander("📂 Upload Resume", expanded=True):
+    resume_file = st.file_uploader("Choose a resume file", type=["pdf", "docx"])
     if resume_file:
-        with st.spinner("Processing resume..."):
-            if resume_file.name.endswith(".pdf"):
-                text = extract_text_from_pdf(resume_file)
-            else:
-                text = extract_text_from_docx(resume_file)
-            st.session_state.resume_text = text
-            st.session_state.resume_analysis = analyze_resume(text)
-            st.session_state.skills_extracted = analyze_resume_skills(text).get("skills", [])
+        if resume_file.name.endswith(".pdf"):
+            resume_text = extract_text_from_pdf(resume_file)
+        else:
+            resume_text = extract_text_from_docx(resume_file)
+        st.session_state.resume_text = resume_text
+        st.session_state.resume_analysis = analyze_resume(resume_text)
+        st.session_state.summary = summarize_resume(resume_text)
 
-        st.success("Resume uploaded and processed successfully.")
+with st.sidebar.expander("🎛️ Job Filters", expanded=False):
+    st.session_state['selected_sectors'] = st.multiselect(
+        "Select sectors you're interested in:",
+        ["Education", "Tech", "Healthcare", "Finance", "HR", "Sales", "Marketing", "Engineering"]
+    )
+    st.session_state['salary_min'] = st.number_input("Minimum Salary (₮)", 0, 10000000, 0, step=100000)
 
-        # Sector filter added here
-        st.subheader("🎯 Filter Job Results by Sector(s)")
-        selected_sectors = st.multiselect("Choose one or more sectors:", list(sector_options.keys()))
-        selected_keywords = [kw for sector in selected_sectors for kw in sector_options[sector]] if selected_sectors else []
-
-        if st.button("🔍 Find Matching Jobs"):
-            # Filter jobs based on selected keywords
-            filtered_jobs = jobs_df.copy()
-            if selected_keywords:
-                pattern = '|'.join(selected_keywords)
-                filtered_jobs = filtered_jobs[
-                    filtered_jobs['Job title'].str.lower().str.contains(pattern, na=False) |
-                    filtered_jobs['Job description'].str.lower().str.contains(pattern, na=False)
-                ]
-
-            if SEMANTIC_OK:
-                results = semantic_match_resume(text, filtered_jobs, top_n=10)
-                st.session_state.job_results = results
-
-                st.subheader("✅ Top Matching Jobs")
-                st.dataframe(results[['Job title', 'Company', 'Salary', 'match_score', 'URL']])
-
-                # Optional: Display top missing sector skills
-                if selected_sectors:
-                    st.markdown("### 🔧 Sector-Specific Resume Match")
-                    sector_keywords = selected_keywords
-                    matched_lower = [s.lower() for s in st.session_state.skills_extracted]
-                    total_sector = len(sector_keywords)
-                    matched_sector = len([kw for kw in sector_keywords if kw.lower() in matched_lower])
-                    match_percent = int((matched_sector / total_sector) * 100) if total_sector > 0 else 0
-                    st.metric("Sector Keyword Coverage", f"{match_percent}%")
-                    st.progress(match_percent / 100)
-
-                    missing_sector = [kw for kw in sector_keywords if kw.lower() not in matched_lower]
-                    if missing_sector:
-                        st.warning(f"You might be missing {len(missing_sector)} keywords important for these sectors:")
-                        for ms in missing_sector[:10]:
-                            st.markdown(f"- {ms}")
-                    else:
-                        st.success("Great! Your resume covers the main keywords for the selected sectors.")
+# --- App Mode ---
+app_mode = st.sidebar.radio("Choose View", ["Resume Analysis", "Job Matching", "Job Market Explorer"])
 
 # --- Resume Analysis ---
-if app_mode == "Resume Analysis":
-    uploaded_file = st.file_uploader("Upload your resume for analysis", type=["pdf", "docx"])
-    if uploaded_file:
-        with st.spinner("Analyzing resume..."):
-            if uploaded_file.name.endswith(".pdf"):
-                resume_text = extract_text_from_pdf(uploaded_file)
-            else:
-                resume_text = extract_text_from_docx(uploaded_file)
-            st.session_state.resume_text = resume_text
-            st.session_state.resume_analysis = analyze_resume(resume_text)
-            skills_data = analyze_resume_skills(resume_text)
-            st.session_state.skills_extracted = skills_data.get("skills", [])
-            keywords = skills_data.get("keywords", [])
+if app_mode == "Resume Analysis" and st.session_state.resume_text:
+    st.title("📊 Resume Analysis")
+    tab1, tab2, tab3, tab4 = st.tabs(["Overview", "Content", "Tips", "Summary"])
 
-        st.markdown("### 📊 Resume Insights")
-        tab1, tab2, tab3 = st.tabs(["Overview", "Content Analysis", "Improvement Tips"])
+    with tab1:
+        score = st.session_state.resume_analysis.get("completeness_score", 0)
+        st.metric("Completeness Score", f"{score}%")
+        st.progress(score / 100)
 
-        with tab1:
-            completeness = st.session_state.resume_analysis.get("completeness_score", 0)
-            st.metric("Completeness Score", f"{completeness}%")
-            st.progress(completeness / 100)
-            st.write("**Detected Sections:**")
-            for section in st.session_state.resume_analysis.get("sections", {}):
-                st.markdown(f"- {section.title()}")
+    with tab2:
+        st.subheader("Detected Sections")
+        for sec in st.session_state.resume_analysis.get("sections", {}).keys():
+            st.markdown(f"- {sec.title()}")
 
-        with tab2:
-            st.write("**Skills Detected:**")
-            if st.session_state.skills_extracted:
-                st.markdown(", ".join(st.session_state.skills_extracted[:20]))
-            else:
-                st.warning("No specific skills detected.")
+        st.subheader("Detected Skills")
+        st.write(", ".join(st.session_state.resume_analysis.get("skills", [])[:20]))
 
-            if keywords:
-                keyword_freq = Counter(keywords).most_common(15)
-                fig = go.Figure(go.Bar(
-                    x=[v for _, v in keyword_freq],
-                    y=[k for k, _ in keyword_freq],
-                    orientation='h',
-                    marker_color='royalblue'
-                ))
-                fig.update_layout(
-                    title="Top Keywords",
-                    xaxis_title="Frequency",
-                    yaxis_title="Keyword",
-                    height=400
-                )
-                st.plotly_chart(fig, use_container_width=True)
+    with tab3:
+        st.markdown("""
+        - Use action verbs (e.g., Led, Developed, Managed)
+        - Quantify achievements (e.g., Increased revenue by 15%)
+        - Ensure section titles are clear and consistent
+        - Keep formatting clean and easy to scan
+        """)
 
-        with tab3:
-            st.write("**Resume Tips:**")
-            st.markdown("""
-            - Use action verbs (e.g., Led, Developed, Managed)
-            - Quantify achievements (e.g., "Increased sales by 15%")
-            - Keep formatting consistent
-            - Tailor your resume for the role
-            """)
+    with tab4:
+        summary = st.session_state.summary
+        st.metric("Estimated Years of Experience", summary["years_of_experience"])
+        st.subheader("Roles Mentioned")
+        st.write(", ".join(summary.get("roles", [])))
+        st.subheader("Top Skills")
+        st.write(", ".join(summary.get("top_skills", [])))
+
+# --- Job Matching ---
+if app_mode == "Job Matching" and st.session_state.resume_text:
+    st.title("🔍 Resume-to-Job Matching")
+    jobs_df = pd.read_csv("data/zangia_filtered_jobs.csv")
+
+    # Filter jobs
+    if st.session_state.selected_sectors:
+        sector_keywords = {
+            "Education": ["education", "teacher", "багш"],
+            "Tech": ["developer", "software", "инженер"],
+            "Healthcare": ["nurse", "doctor", "эмч"],
+            "Finance": ["accountant", "санхүү", "нягтлан"],
+            "HR": ["HR", "recruitment", "хүний нөөц"],
+            "Sales": ["sales", "борлуулалт"],
+            "Marketing": ["marketing", "контент", "brand"],
+            "Engineering": ["engineer", "construction", "барилга"]
+        }
+        keywords = [kw for s in st.session_state.selected_sectors for kw in sector_keywords.get(s, [])]
+        pattern = '|'.join(keywords)
+        jobs_df = jobs_df[
+            jobs_df['Job title'].str.lower().str.contains(pattern, na=False) |
+            jobs_df['Job description'].str.lower().str.contains(pattern, na=False)
+        ]
+
+    if st.session_state.salary_min > 0:
+        def extract_salary_value(s):
+            import re
+            nums = re.findall(r'\d+', str(s))
+            return int(nums[0]) if nums else 0
+        jobs_df['numeric_salary'] = jobs_df['Salary'].apply(extract_salary_value)
+        jobs_df = jobs_df[jobs_df['numeric_salary'] >= st.session_state.salary_min]
+
+    if SEMANTIC_OK:
+        matches_df = semantic_match_resume(st.session_state.resume_text, jobs_df, top_n=10)
+        st.session_state.job_results = matches_df
+
+        st.subheader("✅ Top Matching Jobs")
+        if st.session_state.summary:
+            st.success("🏅 Your resume looks great! Consider applying widely.")
+        for _, row in matches_df.iterrows():
+            st.markdown(f"### {row['Job title']} at {row['Company']}")
+            from nltk.corpus import wordnet
+
+def expand_keywords(keywords):
+    expanded = set(keywords)
+    for word in keywords:
+        for syn in wordnet.synsets(word):
+            for lemma in syn.lemmas():
+                if '_' not in lemma.name():
+                    expanded.add(lemma.name().lower())
+    return list(expanded)
+
+expanded_skills = expand_keywords(st.session_state.summary['top_skills'])
+matched = get_skill_matches(expanded_skills, row['Job description'])
+            description = row['Job description']
+            for skill in matched:
+                description = description.replace(skill, f"<mark>{skill}</mark>")
+            st.markdown(description, unsafe_allow_html=True)
+            st.caption(f"Score: {row['match_score']:.2f} | [Apply Here]({row['URL']})")
+
+        st.download_button(
+            label="📥 Download Results as CSV",
+            data=matches_df.to_csv(index=False).encode("utf-8"),
+            file_name="matched_jobs.csv",
+            mime="text/csv"
+        )
 
 # --- Job Market Explorer ---
 if app_mode == "Job Market Explorer":
     st.header("📊 Job Market Explorer")
-    st.subheader("Overview of current job trends")
+    df = pd.read_csv("data/zangia_filtered_jobs.csv")
+    st.subheader("Job Distribution by Sector")
+    df['sector'] = df['Job title'].fillna('') + ' ' + df['Job description'].fillna('')
+    df['sector'] = df['sector'].str.lower().apply(lambda x: 'tech' if 'developer' in x else 'other')
+    fig = px.pie(df['sector'].value_counts().reset_index(), names='index', values='sector', hole=0.4)
+    st.plotly_chart(fig, use_container_width=True)
 
-    # Filter by salary
-    filtered_jobs = jobs_df.copy()
-    if salary_min > 0:
-        def extract_salary(salary_str):
-            if pd.isna(salary_str) or salary_str == 'Not specified':
-                return 0
-            import re
-            numbers = re.findall(r'\d+', str(salary_str))
-            return sum(map(int, numbers)) / len(numbers) if numbers else 0
+    st.subheader("Top Hiring Companies")
+    top_companies = df['Company'].value_counts().head(10)
+    st.bar_chart(top_companies)
 
-        filtered_jobs['salary_value'] = filtered_jobs['Salary'].apply(extract_salary)
-        filtered_jobs = filtered_jobs[filtered_jobs['salary_value'] >= salary_min]
-
-    if filtered_jobs.empty:
-        st.warning("No jobs found with the current filters.")
-    else:
-        col1, col2 = st.columns(2)
-
-        with col1:
-            st.markdown("#### Job Count by Sector")
-            def classify_job(job_title, job_desc):
-                text = (str(job_title) + " " + str(job_desc)).lower()
-                for sector, keywords in sector_options.items():
-                    for keyword in keywords:
-                        if keyword.lower() in text:
-                            return sector
-                return "Other"
-
-            filtered_jobs['sector'] = filtered_jobs.apply(
-                lambda row: classify_job(row['Job title'], row.get('Job description', '')),
-                axis=1
-            )
-            sector_counts = filtered_jobs['sector'].value_counts()
-            fig = px.pie(
-                names=sector_counts.index,
-                values=sector_counts.values,
-                title="Job Distribution by Sector",
-                hole=0.4
-            )
-            st.plotly_chart(fig, use_container_width=True)
-
-        with col2:
-            st.markdown("#### Top Hiring Companies")
-            company_counts = filtered_jobs['Company'].value_counts().head(10)
-            fig = px.bar(
-                x=company_counts.values,
-                y=company_counts.index,
-                orientation='h',
-                title="Top 10 Hiring Companies",
-                labels={'x': 'Jobs', 'y': 'Company'}
-            )
-            st.plotly_chart(fig, use_container_width=True)
-
-        st.markdown("#### Available Jobs")
-        st.dataframe(filtered_jobs[['Job title', 'Company', 'Salary']], use_container_width=True)
-
-        st.markdown("#### Most In-Demand Skills (Word Cloud)")
-        all_text = " ".join(filtered_jobs['Job description'].fillna('') + " " + filtered_jobs['Requirements'].fillna(''))
-        wordcloud = WordCloud(width=800, height=400, background_color='white').generate(all_text)
-        fig, ax = plt.subplots(figsize=(10, 5))
-        ax.imshow(wordcloud, interpolation='bilinear')
-        ax.axis('off')
-        st.pyplot(fig)
+    st.subheader("Word Cloud of Job Descriptions")
+    text = ' '.join(df['Job description'].dropna().tolist())
+    wordcloud = WordCloud(width=800, height=400, background_color='white').generate(text)
+    fig, ax = plt.subplots(figsize=(10, 5))
+    ax.imshow(wordcloud, interpolation='bilinear')
+    ax.axis('off')
+    st.pyplot(fig)
