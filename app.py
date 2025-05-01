@@ -167,101 +167,60 @@ if app_mode == "Resume-to-Job Matching":
 
 # --- Resume Analysis ---
 if app_mode == "Resume Analysis":
-    # Initialize the selected sector for analysis
-    selected_sector_analysis = st.selectbox("Choose sector for feedback:", [None] + list(sector_options.keys()))
+    # Your resume analysis logic here...
 
-    uploaded_file = st.file_uploader("Upload your resume for analysis", type=["pdf", "docx"])
-    if uploaded_file:
-        with st.spinner("Analyzing resume..."):
-            if uploaded_file.name.endswith(".pdf"):
-                resume_text = extract_text_from_pdf(uploaded_file)
-            else:
-                resume_text = extract_text_from_docx(uploaded_file)
-            st.session_state.resume_text = resume_text
-            st.session_state.resume_analysis = analyze_resume(resume_text)
-            skills_data = analyze_resume_skills(resume_text)
-            st.session_state.skills_extracted = skills_data.get("skills", [])
-            keywords = skills_data.get("keywords", [])
+    st.subheader("📄 Resume Feedback Report")
+    
+    # Define matched_sector_keywords properly based on your job matching logic
+    matched_sector_keywords = []  # Define this based on actual sector match logic
+    
+    # This logic should populate the matched_sector_keywords list
+    if selected_sector_analysis:
+        # Example logic for populating matched_sector_keywords
+        matched_sector_keywords = [kw for kw in selected_keywords if kw.lower() in st.session_state.skills_extracted]
+    
+    feedback_lines = [
+        f"Sector: {selected_sector_analysis}",
+        f"Matched Keywords: {', '.join(matched_sector_keywords) if matched_sector_keywords else 'None'}",
+        f"Missing Keywords: {', '.join(missing_sector_keywords) if missing_sector_keywords else 'None'}",
+        f"Completeness Score: {completeness}%",
+        f"Skills Detected: {', '.join(st.session_state.skills_extracted[:10])}"
+    ]
+    feedback_text = "\n".join(feedback_lines)
 
-        st.markdown("### 📊 Resume Insights")
-        tab1, tab2, tab3 = st.tabs(["Overview", "Content Analysis", "Improvement Tips"])
+    # Create downloadable report
+    output = io.BytesIO()
+    df_feedback = pd.DataFrame({"Feedback": feedback_lines})
+    with pd.ExcelWriter(output, engine="openpyxl") as writer:
+        df_feedback.to_excel(writer, index=False, sheet_name="Resume Feedback")
+    output.seek(0)
 
-        with tab1:
-            completeness = st.session_state.resume_analysis.get("completeness_score", 0)
-            st.metric("Completeness Score", f"{completeness}%")
-            st.progress(completeness / 100)
-            st.write("**Detected Sections:**")
-            for section in st.session_state.resume_analysis.get("sections", {}):
-                st.markdown(f"- {section.title()}")
+    st.download_button(
+        label="⬇ Download Feedback as Excel",
+        data=output,
+        file_name=f"resume_feedback_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
 
-        with tab2:
-            st.write("**Skills Detected:**")
-            if st.session_state.skills_extracted:
-                st.markdown(", ".join(st.session_state.skills_extracted[:20]))
-            else:
-                st.warning("No specific skills detected.")
+    # PDF Export
+    from fpdf import FPDF
+    pdf = FPDF()
+    pdf.add_page()
+    pdf.set_font("Arial", size=12)
+    pdf.cell(200, 10, txt="Smart Job Matcher - Resume Feedback", ln=True, align='C')
+    for line in feedback_lines:
+        pdf.multi_cell(0, 10, txt=line, border=0)
+    pdf_output = io.BytesIO()
+    pdf.output(pdf_output)
+    pdf_output.seek(0)
 
-            if keywords:
-                keyword_freq = Counter(keywords).most_common(15)
-                fig = go.Figure(go.Bar(
-                    x=[v for _, v in keyword_freq],
-                    y=[k for k, _ in keyword_freq],
-                    orientation='h',
-                    marker_color='royalblue'
-                ))
-                fig.update_layout(
-                    title="Top Keywords",
-                    xaxis_title="Frequency",
-                    yaxis_title="Keyword",
-                    height=400
-                )
-                st.plotly_chart(fig, use_container_width=True)
+    st.download_button(
+        label="⬇ Download Feedback as PDF",
+        data=pdf_output,
+        file_name=f"resume_feedback_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf",
+        mime="application/pdf"
+    )
 
-        with tab3:
-            st.write("**Resume Tips:**")
-            if selected_sector_analysis:
-                st.subheader("📄 Download Resume Feedback Report")
-                feedback_lines = [
-                    f"Sector: {selected_sector_analysis}",
-                    f"Matched Keywords: {', '.join(matched_sector_keywords) if matched_sector_keywords else 'None'}",
-                    f"Missing Keywords: {', '.join(missing_sector_keywords) if missing_sector_keywords else 'None'}",
-                    f"Completeness Score: {completeness}%",
-                    f"Skills Detected: {', '.join(st.session_state.skills_extracted[:10])}"
-                ]
-                feedback_text = "\n".join(feedback_lines)
-
-                # Create downloadable report
-                output = io.BytesIO()
-                df_feedback = pd.DataFrame({"Feedback": feedback_lines})
-                with pd.ExcelWriter(output, engine="openpyxl") as writer:
-                    df_feedback.to_excel(writer, index=False, sheet_name="Resume Feedback")
-                output.seek(0)
-
-                st.download_button(
-                    label="⬇ Download Feedback as Excel",
-                    data=output,
-                    file_name=f"resume_feedback_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                )
-
-                # PDF Export
-                from fpdf import FPDF
-                pdf = FPDF()
-                pdf.add_page()
-                pdf.set_font("Arial", size=12)
-                pdf.cell(200, 10, txt="Smart Job Matcher - Resume Feedback", ln=True, align='C')
-                for line in feedback_lines:
-                    pdf.multi_cell(0, 10, txt=line, border=0)
-                pdf_output = io.BytesIO()
-                pdf.output(pdf_output)
-                pdf_output.seek(0)
-
-                st.download_button(
-                    label="⬇ Download Feedback as PDF",
-                    data=pdf_output,
-                    file_name=f"resume_feedback_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf",
-                    mime="application/pdf"
-                )
 
             # --- General tips ---
             st.markdown("""
