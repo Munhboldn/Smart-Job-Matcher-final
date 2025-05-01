@@ -1,83 +1,68 @@
-import re
-import os
-import spacy
 import fitz  # PyMuPDF
 import docx2txt
+import re
+import os
 import tempfile
 from docx import Document
-from collections import defaultdict
-import logging
-import streamlit as st
+from collections import Counter, defaultdict
+from typing import Dict, List, Any
+import spacy
 
-# --- Logging ---
-logger = logging.getLogger(__name__)
+# Load spaCy model
+try:
+    nlp = spacy.load("en_core_web_sm")
+except:
+    import subprocess
+    subprocess.run(["python", "-m", "spacy", "download", "en_core_web_sm"])
+    nlp = spacy.load("en_core_web_sm")
 
 
-@st.cache_resource
-def load_spacy_model(model_name="en_core_web_sm"):
-    try:
-        logger.info(f"Attempting to load spaCy model '{model_name}' for basic parsing.")
-        nlp_model = spacy.load(model_name)
-        logger.info(f"Successfully loaded spaCy model '{model_name}' for basic parsing.")
-        return nlp_model
-    except OSError as e:
-        error_msg = f"FATAL ERROR: Could not load spaCy model '{model_name}'. Ensure it is correctly listed and installed via requirements.txt."
-        logger.error(error_msg, exc_info=True)
-        raise
-
-nlp = load_spacy_model()
-
-# --- Text Extraction Functions ---
-def extract_text_from_pdf(pdf_file):
-    """Extract text from PDF preserving formatting."""
+def extract_text_from_pdf(pdf_path: str) -> str:
+    """Extract text from a PDF file using PyMuPDF."""
     text = ""
-    try:
-        pdf_file.seek(0)
-        with fitz.open(stream=pdf_file.read(), filetype="pdf") as doc:
-            for page in doc:
-                blocks = page.get_text("blocks")
-                for block in blocks:
-                    text += block[4] + "\n\n"
-        return clean_resume_text(text)
-    except Exception as e:
-        logger.error(f"PDF extraction error: {e}")
-        return "Error extracting PDF content."
+    with fitz.open(pdf_path) as doc:
+        for page in doc:
+            text += page.get_text()
+    return clean_text(text)
 
-def extract_text_from_docx(docx_file):
-    """Extract structured text from DOCX files."""
-    try:
-        docx_file.seek(0)
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".docx") as tmp:
-            tmp.write(docx_file.read())
-            tmp_path = tmp.name
 
-        doc = Document(tmp_path)
-        os.unlink(tmp_path)
+def extract_text_from_docx(docx_path: str) -> str:
+    """Extract text from a DOCX file using docx2txt."""
+    return clean_text(docx2txt.process(docx_path))
 
-        full_text = [para.text.strip() for para in doc.paragraphs if para.text.strip()]
-        return clean_resume_text("\n\n".join(full_text))
 
-    except Exception as e:
-        logger.error(f"DOCX extraction error: {e}")
-        return "Error extracting DOCX content."
-
-# --- Text Cleaning Function ---
-def clean_resume_text(text):
+def clean_text(text: str) -> str:
+    """Clean and normalize resume text."""
     text = re.sub(r'\s+', ' ', text)
-    text = text.replace('•', '\n• ')
+    text = text.replace('•', '\n•')
     text = re.sub(r'([a-z])([A-Z])', r'\1 \2', text)
     return text.strip()
 
-# --- Resume Section Extraction ---
-def extract_resume_sections(text):
+
+def detect_resume_sections(text: str) -> Dict[str, bool]:
+    section_keywords = {
+        "Education": r"(Education|Боловсрол|сургалт|их сургууль)",
+        "Experience": r"(Experience|Туршлага|ажилласан|ажлын туршлага)",
+        "Skills": r"(Skills|Ур чадвар|чадварууд)",
+        "Projects": r"(Projects|Төслүүд|portfolio)",
+        "Certifications": r"(Certifications|Гэрчилгээ|сертификат)",
+        "Summary": r"(Summary|Товч танилцуулга|overview)",
+        "Languages": r"(Languages|Хэл|linguistic)",
+        "Contact": r"(Contact|Мэдээлэл|info|profile)"
+    }
+    return {k: bool(re.search(v, text, re.IGNORECASE)) for k, v in section_keywords.items()}
+
+
+def extract_resume_sections(text: str) -> Dict[str, str]:
+    """Split resume into sections with their content."""
     section_patterns = {
-        'contact': r'(contact|personal|info|information|profile|details)',
-        'education': r'(education|academic|qualification|degree|university|school)',
-        'experience': r'(experience|employment|work|history|professional)',
-        'skills': r'(skills|abilities|expertise|competencies|proficiencies)',
-        'projects': r'(projects|portfolio|works)',
+        'contact': r'(contact|personal|info|information|profile|details|мэдээлэл)',
+        'education': r'(education|academic|qualification|degree|university|school|боловсрол|сургалт)',
+        'experience': r'(experience|employment|work|history|professional|туршлага|ажилласан)',
+        'skills': r'(skills|abilities|expertise|competencies|proficiencies|чадвар)',
+        'projects': r'(projects|portfolio|works|төслүүд)',
         'achievements': r'(achievements|accomplishments|honors|awards)',
-        'languages': r'(languages|linguistic)',
+        'languages': r'(languages|linguistic|хэл)',
         'references': r'(references|recommendations)'
     }
     sections = defaultdict(str)
@@ -95,29 +80,41 @@ def extract_resume_sections(text):
             sections[current_section] += line + "\n"
     return dict(sections)
 
-# --- Skill Extraction Enhanced ---
-def extract_skills(text):
-    common_skills = ["Python", "Java", "SQL", "JavaScript", "Machine Learning", "Docker", "AWS", "React", "Git"]
-    found_skills = set()
-    pattern = re.compile(r'\\b(?:' + '|'.join(re.escape(skill) for skill in common_skills) + r')\\b', re.I)
-    found_skills.update(pattern.findall(text))
-    doc = nlp(text)
-    for chunk in doc.noun_chunks:
-        chunk_text = chunk.text.strip()
-        if any(skill.lower() in chunk_text.lower() for skill in common_skills):
-            found_skills.add(chunk_text)
-    return list(found_skills)
 
-# --- Contact Information Extraction ---
-def extract_contact_info(text):
+def extract_top_skills(text: str, top_n: int = 15) -> List[str]:
+    words = re.findall(r'\b[a-zA-Z]{3,}\b', text.lower())
+    stop_words = {
+        'the', 'and', 'for', 'with', 'that', 'have', 'this', 'from', 'you', 'but', 'are',
+        'all', 'can', 'was', 'has', 'will', 'not', 'who', 'your', 'their', 'experience', 'education'
+    }
+    common = [w for w in words if w not in stop_words]
+    return [word for word, _ in Counter(common).most_common(top_n)]
+
+
+def extract_roles(text: str) -> List[str]:
+    keywords = [
+        "teacher", "manager", "coordinator", "developer", "designer", "engineer",
+        "service", "consultant", "director", "analyst", "specialist",
+        "менежер", "багш", "захирал", "туслах", "сургалт", "хариуцсан"
+    ]
+    found_roles = [kw for kw in keywords if re.search(rf"\b{kw}\b", text, re.IGNORECASE)]
+    return list(set(found_roles))
+
+
+def extract_contact_info(text: str) -> Dict[str, Any]:
     email = re.findall(r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b', text)
     phone = re.findall(r'(\+?[\d\s()-]{7,})', text)
     linkedin = re.findall(r'linkedin\.com/in/[\w-]+', text)
     locations = [ent.text for ent in nlp(text).ents if ent.label_ == "GPE"]
-    return {'email': email, 'phone': phone, 'linkedin': linkedin, 'location': locations}
+    return {
+        'email': email,
+        'phone': phone,
+        'linkedin': linkedin,
+        'location': locations
+    }
 
-# --- Resume Completeness Scoring ---
-def analyze_resume(text):
+
+def analyze_resume(text: str) -> Dict[str, Any]:
     sections = extract_resume_sections(text)
     contact_info = extract_contact_info(text)
     completeness_weights = {
@@ -132,6 +129,18 @@ def analyze_resume(text):
     return {
         'sections': sections,
         'contact_info': contact_info,
-        'skills': extract_skills(text),
+        'skills': extract_top_skills(text),
+        'roles': extract_roles(text),
         'completeness_score': completeness_score
+    }
+
+
+def summarize_resume(text: str) -> Dict[str, Any]:
+    years_exp = len(set(re.findall(r"\b(20[0-9]{2})\b", text)))
+    roles = extract_roles(text)
+    skills = extract_top_skills(text, 10)
+    return {
+        "years_of_experience": years_exp,
+        "roles": roles,
+        "top_skills": skills
     }
