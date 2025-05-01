@@ -13,134 +13,114 @@ import streamlit as st
 
 logger = logging.getLogger(__name__)
 
-# --- NLTK Data Downloads ---
-try:
-    nltk.data.find('tokenizers/punkt')
-except LookupError:
-    logger.info("Downloading NLTK punkt...")
-    nltk.download('punkt', quiet=True)
+# --- NLTK and spaCy Resources ---
+nltk.download('punkt', quiet=True)
+nltk.download('stopwords', quiet=True)
 
-try:
-    nltk.data.find('corpora/stopwords')
-except LookupError:
-    logger.info("Downloading NLTK stopwords...")
-    nltk.download('stopwords', quiet=True)
-
-# --- SpaCy Model Loading with Streamlit Caching ---
 @st.cache_resource
-def load_spacy_model(model_name="en_core_web_sm"):
-    try:
-        logger.info(f"Loading spaCy model '{model_name}'")
-        model = spacy.load(model_name)
-        logger.info(f"Successfully loaded spaCy model '{model_name}'")
-        return model
-    except OSError:
-        logger.error(f"Could not load spaCy model '{model_name}'. Ensure it's installed.", exc_info=True)
-        raise
+def load_spacy_model():
+    return spacy.load("en_core_web_sm")
+
+@st.cache_resource
+def load_transformer():
+    return SentenceTransformer("paraphrase-multilingual-MiniLM-L12-v2")
 
 nlp = load_spacy_model()
-
-# --- Sentence Transformer Model Loading with Streamlit Caching ---
-@st.cache_resource
-def load_sentence_transformer(model_name="paraphrase-multilingual-MiniLM-L12-v2"):
-    try:
-        logger.info(f"Loading SentenceTransformer model '{model_name}'")
-        model = SentenceTransformer(model_name)
-        logger.info(f"Successfully loaded SentenceTransformer model '{model_name}'")
-        return model
-    except Exception as e:
-        logger.error(f"Error loading SentenceTransformer model '{model_name}': {e}", exc_info=True)
-        raise
-
-model = load_sentence_transformer()
+model = load_transformer()
 
 # --- Keyword Extraction ---
 def extract_resume_keywords(text, top_n=30):
-    text = re.sub(r'[^Ѐ-\u04FF\w\s]', ' ', text.lower())
+    text = re.sub(r'[^Ѐ-ӿ\w\s]', ' ', text.lower())
     stop_words = set(stopwords.words('english'))
-    mongolian_stopwords = {"ба", "болон", "мөн", "юм", "бол", "нь", "л", "тэр", "энэ", "би", "та", "тэд"}
-    stop_words.update(mongolian_stopwords)
-
-    tokenizer = RegexpTokenizer(r'\w+')
-    tokens = [word for word in tokenizer.tokenize(text) if word.isalpha() and word not in stop_words and len(word) > 2]
-
-    doc = nlp(text)
-    entities = [ent.text.lower() for ent in doc.ents if ent.label_ in ["ORG", "PRODUCT", "LANGUAGE", "SKILL"]]
-
-    word_freq = Counter(tokens + entities)
-    return [word for word, _ in word_freq.most_common(top_n)]
+    stop_words.update({
+        "ба", "болон", "мөн", "юм", "бол", "нь", "л", "тэр", "энэ", "би", "та", "тэд",
+        "байна", "хийдэг", "гадаад", "ажил", "туршлага", "компани", "сургууль",
+        "мэргэжил", "он", "сарын", "өдөр", "байгууллага", "хөтөлбөр"
+    })
+    tokens = [word for word in RegexpTokenizer(r'\w+").tokenize(text) if word.isalpha() and word not in stop_words and len(word) > 2]
+    ents = [ent.text.lower() for ent in nlp(text).ents if ent.label_ in ["ORG", "PRODUCT", "LANGUAGE", "SKILL"]]
+    return [word for word, _ in Counter(tokens + ents).most_common(top_n)]
 
 # --- Skill Extraction ---
-def extract_skills_from_text(text):
-    tech_skills = ["python", "java", "c++", "javascript", "html", "css", "sql", "nosql",
-                   "mongodb", "react", "angular", "vue", "node", "express", "django",
-                   "flask", "tensorflow", "pytorch", "ai", "ml", "data science",
-                   "docker", "kubernetes", "aws", "azure", "gcp", "git", "devops"]
+def extract_skills_from_text(text, job_corpus=None):
+    """
+    Extracts skills by matching against a curated list and named entities.
+    You can expand this by combining it with job dataset-derived phrases.
+    """
+    tech_skills = [
+        "python", "java", "c++", "c#", "sql", "nosql", "html", "css", "javascript",
+        "react", "angular", "vue", "node", "django", "flask", "spring", "docker", "kubernetes",
+        "aws", "azure", "gcp", "linux", "git", "devops", "mongodb", "postgresql"
+    ]
 
-    soft_skills = ["communication", "teamwork", "leadership", "problem solving",
-                   "critical thinking", "time management", "creativity", "adaptability",
-                   "project management", "analytical", "detail oriented"]
+    soft_skills = [
+        "teamwork", "leadership", "communication", "problem solving", "adaptability",
+        "project management", "time management", "critical thinking", "creativity",
+        "collaboration", "analytical skills", "attention to detail"
+    ]
 
-    mongolian_skills = ["монгол хэл", "орос хэл", "англи хэл", "хятад хэл", "солонгос хэл",
-                        "япон хэл", "удирдлага", "менежмент", "санхүү", "нягтлан бодох"]
+    mongolian_skills = [
+        "монгол хэл", "англи хэл", "орос хэл", "хятад хэл", "солонгос хэл", "япон хэл",
+        "нягтлан", "удирдлага", "сургалт", "багш", "борлуулалт", "үйлчилгээ",
+        "менежмент", "санхүү", "маркетинг", "төсөл", "судалгаа"
+    ]
 
     all_skills = tech_skills + soft_skills + mongolian_skills
+
+    # Expand with dynamic job corpus phrases
+    if job_corpus is not None:
+        from sklearn.feature_extraction.text import TfidfVectorizer
+        tfidf = TfidfVectorizer(max_features=100, stop_words='english')
+        tfidf_matrix = tfidf.fit_transform(job_corpus.dropna().astype(str))
+        dynamic_keywords = tfidf.get_feature_names_out()
+        all_skills += list(dynamic_keywords)
     text_lower = text.lower()
-
-    found_skills = [skill for skill in all_skills if skill in text_lower]
-
-    doc = nlp(text)
-    found_skills += [ent.text.lower() for ent in doc.ents if ent.label_ in ["ORG", "PRODUCT", "SKILL"]]
-
-    return list(set(found_skills))
+    found = [skill for skill in all_skills if skill in text_lower]
+    ents = [ent.text.lower() for ent in nlp(text).ents if ent.label_ in ["ORG", "PRODUCT", "SKILL"]]
+    return list(set(found + ents))
 
 # --- Semantic Matching ---
 def semantic_match_resume(resume_text, jobs_df, top_n=10):
-    required_cols = ["Job title", "Job description", "Requirements"]
-    for col in required_cols:
-        if col not in jobs_df.columns:
-            logger.error(f"Missing required column: {col}")
-            return pd.DataFrame(columns=jobs_df.columns.tolist() + ['match_score'])
+    if not all(col in jobs_df.columns for col in ["Job title", "Job description", "Requirements"]):
+        logger.warning("Required job columns missing")
+        return pd.DataFrame(columns=list(jobs_df.columns) + ['match_score'])
 
-    jobs_df["combined_text"] = (
-        jobs_df["Job title"].fillna('') + " " +
-        jobs_df["Job description"].fillna('') + " " +
-        jobs_df["Requirements"].fillna('')
-    )
-
-    resume_embedding = model.encode([resume_text])[0]
+    jobs_df["combined_text"] = jobs_df["Job title"].fillna('') + ", " + jobs_df["Job description"].fillna('') + ", " + jobs_df["Requirements"].fillna('')
     job_embeddings = model.encode(jobs_df["combined_text"].tolist())
-
-    similarity_scores = cosine_similarity([resume_embedding], job_embeddings)[0] * 100
-    result_df = jobs_df.copy()
-    result_df["match_score"] = similarity_scores
-
-    return result_df.sort_values(by="match_score", ascending=False).head(top_n)
+    resume_embedding = model.encode([resume_text])[0]
+    scores = cosine_similarity([resume_embedding], job_embeddings)[0] * 100
+    jobs_df["match_score"] = scores
+        jobs_df = jobs_df.sort_values("match_score", ascending=False)
+    jobs_df["matched_skills"], jobs_df["missing_skills"] = zip(*jobs_df["combined_text"].apply(lambda txt: get_skill_matches(extract_skills_from_text(resume_text, jobs_df["combined_text"]), txt)))
+    return jobs_df.head(top_n)
 
 # --- Skill Matching ---
 def get_skill_matches(resume_skills, job_text):
     job_skills = extract_skills_from_text(job_text)
-    resume_skills_lower = [skill.lower() for skill in resume_skills]
-
-    matched_skills = [skill for skill in job_skills if skill.lower() in resume_skills_lower]
-    missing_skills = [skill for skill in job_skills if skill.lower() not in resume_skills_lower]
-
-    return matched_skills, missing_skills
+    resume_skills_lower = set(skill.lower() for skill in resume_skills)
+    matched = [skill for skill in job_skills if skill.lower() in resume_skills_lower]
+    missing = [skill for skill in job_skills if skill.lower() not in resume_skills_lower]
+    return matched, missing
 
 # --- Resume Analysis ---
 def analyze_resume(resume_text):
+    """
+    Analyze the resume by extracting:
+    - Recognized skills
+    - Top keywords
+    - Section presence (via regex)
+    - Completeness score (based on presence count)
+    """
     skills = extract_skills_from_text(resume_text)
     keywords = extract_resume_keywords(resume_text)
-
-    sections = {
-        "education": len(re.findall(r'education|degree|university|college|school', resume_text.lower())),
-        "experience": len(re.findall(r'experience|work|job|position|career', resume_text.lower())),
-        "skills": len(re.findall(r'skills|abilities|proficient|expertise', resume_text.lower())),
-        "projects": len(re.findall(r'project|portfolio|developed|created|built', resume_text.lower()))
+    section_patterns = {
+        "education": r"education|degree|university|college|school",
+        "experience": r"experience|work|job|position|career",
+        "skills": r"skills|abilities|proficient|expertise",
+        "projects": r"project|portfolio|developed|created|built"
     }
-
+    sections = {sec: len(re.findall(pattern, resume_text.lower())) for sec, pattern in section_patterns.items()}
     completeness = min(100, (sum(sections.values()) / 8) * 100)
-
     return {
         "skills": skills,
         "keywords": keywords,
