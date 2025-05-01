@@ -2,8 +2,9 @@
 streamlit>=1.28.0
 pandas>=2.0.0
 
-# Fix for ValueError: numpy.dtype size changed - Keep numpy pinned to 1.x
-numpy==1.26.4
+# Pin numpy to a 1.x version to avoid known compatibility issues with thinc/spacy
+# This resolves the ValueError: numpy.dtype size changed error.
+numpy==1.26.4 # Use this specific 1.x version, which is often compatible.
 
 plotly>=5.13.0
 
@@ -14,16 +15,17 @@ docx2txt>=0.8
 
 # NLP and matching libraries
 nltk>=3.8.1
-# Pin spacy
+# Pin spacy to the version observed being compatible with thinc/numpy 1.x
 spacy==3.7.5
 
-# TEMPORARILY REMOVED FOR DIAGNOSIS: sentence-transformers and its dependencies (like torch)
-# sentence-transformers>=2.2.2
-# torch==... # (Remove any direct torch pin if you had one)
+# Libraries for Semantic Matching
+# These versions of torch and sentence-transformers were found compatible with the pinned numpy/spacy/thinc
+torch==2.2.0
+sentence-transformers>=2.2.2 # Pinning >= allows minor updates within compatible range
 
-scikit-learn>=1.2.2
+scikit-learn>=1.2.2 # Used by semantic_matcher
 
-# Libraries for potential other features (wordcloud, matplotlib, openpyxl, requests)
+# Libraries for other features
 openpyxl>=3.1.2
 wordcloud>=1.9.0
 matplotlib>=3.7.0
