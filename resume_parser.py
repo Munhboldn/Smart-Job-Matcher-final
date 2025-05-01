@@ -1,146 +1,139 @@
 import fitz  # PyMuPDF
 import docx2txt
+import tempfile
 import re
 import os
-import tempfile
 from docx import Document
-from collections import Counter, defaultdict
-from typing import Dict, List, Any
+import pandas as pd
 import spacy
+from collections import defaultdict
 
-# Load spaCy model
+# Load spaCy model for NER
 try:
-    nlp = spacy.load("en_core_web_sm")
+    nlp = spacy.load('en_core_web_sm')
 except:
     import subprocess
     subprocess.run(["python", "-m", "spacy", "download", "en_core_web_sm"])
-    nlp = spacy.load("en_core_web_sm")
+    nlp = spacy.load('en_core_web_sm')
 
-
-def extract_text_from_pdf(pdf_path: str) -> str:
-    """Extract text from a PDF file using PyMuPDF."""
+def extract_text_from_pdf(pdf_file):
+    """Extract text from PDF with improved formatting preservation."""
     text = ""
-    with fitz.open(pdf_path) as doc:
-        for page in doc:
-            text += page.get_text()
-    return clean_text(text)
+    try:
+        with fitz.open(stream=pdf_file.read(), filetype="pdf") as doc:
+            for page in doc:
+                blocks = page.get_text("blocks")
+                for block in blocks:
+                    text += block[4] + "\n\n"
+    except Exception as e:
+        return f"Error extracting PDF: {str(e)}"
+    return clean_resume_text(text)
 
+def extract_text_from_docx(docx_file):
+    """Extract text from DOCX with improved structure preservation."""
+    try:
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".docx") as tmp:
+            tmp.write(docx_file.read())
+            tmp_path = tmp.name
+        doc = Document(tmp_path)
+        full_text = []
+        for header in doc.sections[0].header.paragraphs:
+            if header.text.strip():
+                full_text.append(header.text.strip())
+        for para in doc.paragraphs:
+            if para.text.strip():
+                full_text.append(para.text.strip())
+        for table in doc.tables:
+            for row in table.rows:
+                row_text = []
+                for cell in row.cells:
+                    if cell.text.strip():
+                        row_text.append(cell.text.strip())
+                if row_text:
+                    full_text.append(" | ".join(row_text))
+        os.unlink(tmp_path)
+        return clean_resume_text("\n\n".join(full_text))
+    except Exception as e:
+        return f"Error extracting DOCX: {str(e)}"
 
-def extract_text_from_docx(docx_path: str) -> str:
-    """Extract text from a DOCX file using docx2txt."""
-    return clean_text(docx2txt.process(docx_path))
-
-
-def clean_text(text: str) -> str:
-    """Clean and normalize resume text."""
+def clean_resume_text(text):
     text = re.sub(r'\s+', ' ', text)
-    text = text.replace('•', '\n•')
+    text = text.replace('•', '\n• ')
     text = re.sub(r'([a-z])([A-Z])', r'\1 \2', text)
+    text = re.sub(r'\n{3,}', '\n\n', text)
     return text.strip()
 
-
-def detect_resume_sections(text: str) -> Dict[str, bool]:
-    section_keywords = {
-        "Education": r"(Education|Боловсрол|сургалт|их сургууль)",
-        "Experience": r"(Experience|Туршлага|ажилласан|ажлын туршлага)",
-        "Skills": r"(Skills|Ур чадвар|чадварууд)",
-        "Projects": r"(Projects|Төслүүд|portfolio)",
-        "Certifications": r"(Certifications|Гэрчилгээ|сертификат)",
-        "Summary": r"(Summary|Товч танилцуулга|overview)",
-        "Languages": r"(Languages|Хэл|linguistic)",
-        "Contact": r"(Contact|Мэдээлэл|info|profile)"
-    }
-    return {k: bool(re.search(v, text, re.IGNORECASE)) for k, v in section_keywords.items()}
-
-
-def extract_resume_sections(text: str) -> Dict[str, str]:
-    """Split resume into sections with their content."""
+def extract_resume_sections(text):
     section_patterns = {
-        'contact': r'(contact|personal|info|information|profile|details|мэдээлэл)',
-        'education': r'(education|academic|qualification|degree|university|school|боловсрол|сургалт)',
-        'experience': r'(experience|employment|work|history|professional|туршлага|ажилласан)',
-        'skills': r'(skills|abilities|expertise|competencies|proficiencies|чадвар)',
-        'projects': r'(projects|portfolio|works|төслүүд)',
+        'contact': r'(contact|personal|info|information|profile|details)',
+        'education': r'(education|academic|qualification|degree|university|school)',
+        'experience': r'(experience|employment|work|history|professional)',
+        'skills': r'(skills|abilities|expertise|competencies|proficiencies)',
+        'projects': r'(projects|portfolio|works)',
         'achievements': r'(achievements|accomplishments|honors|awards)',
-        'languages': r'(languages|linguistic|хэл)',
+        'languages': r'(languages|linguistic)',
         'references': r'(references|recommendations)'
     }
     sections = defaultdict(str)
     lines = text.split('\n')
     current_section = 'other'
-    for line in lines:
+    for i, line in enumerate(lines):
         line_lower = line.lower().strip()
-        matched = False
         for section_name, pattern in section_patterns.items():
             if re.search(pattern, line_lower) and len(line_lower) < 50:
                 current_section = section_name
-                matched = True
                 break
-        if not matched:
-            sections[current_section] += line + "\n"
+        if i < len(lines) - 1:
+            sections[current_section] += lines[i+1] + "\n"
+    if len(sections) <= 1:
+        sections['content'] = text
     return dict(sections)
 
-
-def extract_top_skills(text: str, top_n: int = 15) -> List[str]:
-    words = re.findall(r'\b[a-zA-Z]{3,}\b', text.lower())
-    stop_words = {
-        'the', 'and', 'for', 'with', 'that', 'have', 'this', 'from', 'you', 'but', 'are',
-        'all', 'can', 'was', 'has', 'will', 'not', 'who', 'your', 'their', 'experience', 'education'
-    }
-    common = [w for w in words if w not in stop_words]
-    return [word for word, _ in Counter(common).most_common(top_n)]
-
-
-def extract_roles(text: str) -> List[str]:
-    keywords = [
-        "teacher", "manager", "coordinator", "developer", "designer", "engineer",
-        "service", "consultant", "director", "analyst", "specialist",
-        "менежер", "багш", "захирал", "туслах", "сургалт", "хариуцсан"
-    ]
-    found_roles = [kw for kw in keywords if re.search(rf"\b{kw}\b", text, re.IGNORECASE)]
-    return list(set(found_roles))
-
-
-def extract_contact_info(text: str) -> Dict[str, Any]:
-    email = re.findall(r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b', text)
-    phone = re.findall(r'(\+?[\d\s()-]{7,})', text)
-    linkedin = re.findall(r'linkedin\.com/in/[\w-]+', text)
-    locations = [ent.text for ent in nlp(text).ents if ent.label_ == "GPE"]
+def extract_contact_info(text):
+    email_pattern = r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b'
+    phone_pattern = r'(\+?[\d\s()-]{7,})'
+    linkedin_pattern = r'linkedin\.com/in/[\w-]+'
+    emails = re.findall(email_pattern, text)
+    phones = re.findall(phone_pattern, text)
+    linkedin = re.findall(linkedin_pattern, text)
+    doc = nlp(text[:1000])
+    locations = [ent.text for ent in doc.ents if ent.label_ == "GPE"]
     return {
-        'email': email,
-        'phone': phone,
+        'emails': emails,
+        'phones': phones,
         'linkedin': linkedin,
-        'location': locations
+        'locations': locations
     }
 
-
-def analyze_resume(text: str) -> Dict[str, Any]:
+def analyze_resume(text):
     sections = extract_resume_sections(text)
     contact_info = extract_contact_info(text)
-    completeness_weights = {
-        'contact': 10, 'education': 20, 'experience': 30,
-        'skills': 20, 'projects': 10, 'achievements': 5,
+    doc = nlp(text[:5000])
+    entities = {
+        'organizations': [ent.text for ent in doc.ents if ent.label_ == "ORG"],
+        'dates': [ent.text for ent in doc.ents if ent.label_ == "DATE"],
+        'people': [ent.text for ent in doc.ents if ent.label_ == "PERSON"]
+    }
+    section_weights = {
+        'contact': 10,
+        'education': 20,
+        'experience': 30,
+        'skills': 20,
+        'projects': 10,
+        'achievements': 5,
         'languages': 5
     }
-    completeness_score = sum(weight for sec, weight in completeness_weights.items() if sections.get(sec))
-    completeness_score += 5 if contact_info.get('email') else 0
-    completeness_score += 5 if contact_info.get('phone') else 0
-
+    completeness_score = 0
+    for section, weight in section_weights.items():
+        if section in sections and len(sections[section]) > 10:
+            completeness_score += weight
+    if contact_info['emails']:
+        completeness_score += 5
+    if contact_info['phones']:
+        completeness_score += 5
     return {
         'sections': sections,
         'contact_info': contact_info,
-        'skills': extract_top_skills(text),
-        'roles': extract_roles(text),
+        'entities': entities,
         'completeness_score': completeness_score
-    }
-
-
-def summarize_resume(text: str) -> Dict[str, Any]:
-    years_exp = len(set(re.findall(r"\b(20[0-9]{2})\b", text)))
-    roles = extract_roles(text)
-    skills = extract_top_skills(text, 10)
-    return {
-        "years_of_experience": years_exp,
-        "roles": roles,
-        "top_skills": skills
     }
