@@ -1,18 +1,19 @@
-# Smart Job Matcher App (Enhanced UI with Full Features)
-# Includes matching, analysis, word cloud, tabs, and Excel download
 
-# --- Imports and Config ---
 import streamlit as st
 import pandas as pd
 import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
 import io
+import os
 import time
 import logging
 from collections import Counter
-from wordcloud import WordCloud
+from wordcloud import WordCloud, STOPWORDS
 import matplotlib.pyplot as plt
+
+# Define stopwords once, used consistently across the app
+stopwords = set(STOPWORDS)
 
 # --- Streamlit Page Config ---
 st.set_page_config(
@@ -25,7 +26,7 @@ st.set_page_config(
 )
 
 # --- Logging ---
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("smart_job_matcher")
 if not logger.handlers:
     logging.basicConfig(level=logging.INFO)
 
@@ -63,13 +64,17 @@ init_session()
 @st.cache_data(ttl=3600)
 def load_jobs():
     try:
-        df = pd.read_csv("data/zangia_filtered_jobs.csv")
+        file_path = "data/zangia_filtered_jobs.csv"
+        if not os.path.exists(file_path):
+            st.warning("⚠️ Job data file is missing. Please upload or check the file path.")
+            raise FileNotFoundError("Job data file not found.")
+        df = pd.read_csv(file_path)
         df['Salary'] = df['Salary'].fillna('Not specified')
         df['Job description'] = df['Job description'].fillna('')
         df['Requirements'] = df['Requirements'].fillna('')
         return df
     except Exception as e:
-        st.error(f"Failed to load job data: {e}")
+        logger.error(f"Error loading job data from {file_path}: {e}")
         return pd.DataFrame(columns=['Job title', 'Company', 'Salary', 'Job description', 'Requirements', 'URL'])
 
 jobs_df = load_jobs()
@@ -100,9 +105,6 @@ st.sidebar.markdown("---")
 st.sidebar.write("#### About")
 st.sidebar.write("Smart Job Matcher helps you find jobs that match your skills and experience. Upload your resume and get personalized job recommendations.")
 
-# --- Header ---
-st.markdown('<div class="main-header">💼 Smart Job Matcher</div>', unsafe_allow_html=True)
-
 # --- Resume-to-Job Matching ---
 if app_mode == "Resume-to-Job Matching":
     st.header("📄 Upload Your Resume")
@@ -126,50 +128,7 @@ if app_mode == "Resume-to-Job Matching":
         selected_keywords = [kw for sector in selected_sectors for kw in sector_options[sector]] if selected_sectors else []
 
         if st.button("🔍 Find Matching Jobs"):
-        from datetime import datetime
-        output = io.BytesIO()
-        if not filtered_jobs.empty:
-            from fpdf import FPDF
-            df_feedback = filtered_jobs[['Job title', 'Company', 'Salary', 'Job description', 'Requirements', 'URL']].copy()
-            df_feedback['Matched Skills'] = ', '.join(st.session_state.skills_extracted[:10])
-
-            # Excel Export
-            with pd.ExcelWriter(output, engine="openpyxl") as writer:
-                df_feedback.to_excel(writer, index=False, sheet_name="Job Matches")
-            output.seek(0)
-
-            st.download_button(
-                label="⬇ Download Matched Jobs as Excel",
-                data=output,
-                file_name=f"job_matches_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            )
-
-            # PDF Export
-            pdf = FPDF()
-            pdf.add_page()
-            pdf.set_font("Arial", size=12)
-            pdf.cell(200, 10, txt="Smart Job Matcher - Matched Jobs Report", ln=True, align='C')
-            for index, row in df_feedback.iterrows():
-                pdf.multi_cell(0, 10, txt=f"{row['Job title']} at {row['Company']}
-Salary: {row['Salary']}
-URL: {row['URL']}
-", border=0)
-            pdf_output = io.BytesIO()
-            pdf.output(pdf_output)
-            pdf_output.seek(0)
-
-            st.download_button(
-                label="⬇ Download Matched Jobs as PDF",
-                data=pdf_output,
-                file_name=f"job_matches_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf",
-                mime="application/pdf"
-            )
-                label="⬇ Download Matched Jobs as Excel",
-                data=output,
-                file_name=f"job_matches_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            )
+            # Filter jobs based on selected keywords
             filtered_jobs = jobs_df.copy()
             if selected_keywords:
                 pattern = '|'.join(selected_keywords)
@@ -208,10 +167,6 @@ URL: {row['URL']}
                         st.success("Great! Your resume covers the main keywords for the selected sectors.")
 
 # --- Resume Analysis ---
-from datetime import datetime
-st.sidebar.subheader("🎯 Target Sector")
-selected_sector_analysis = st.sidebar.selectbox("Choose sector for feedback:", [None] + list(sector_options.keys()))
-
 if app_mode == "Resume Analysis":
     uploaded_file = st.file_uploader("Upload your resume for analysis", type=["pdf", "docx"])
     if uploaded_file:
@@ -262,7 +217,6 @@ if app_mode == "Resume Analysis":
 
         with tab3:
             st.write("**Resume Tips:**")
-
             if selected_sector_analysis:
                 st.subheader("📄 Download Resume Feedback Report")
                 feedback_lines = [
@@ -272,8 +226,7 @@ if app_mode == "Resume Analysis":
                     f"Completeness Score: {completeness}%",
                     f"Skills Detected: {', '.join(st.session_state.skills_extracted[:10])}"
                 ]
-                feedback_text = "
-".join(feedback_lines)
+                feedback_text = "\n".join(feedback_lines)
 
                 # Create downloadable report
                 output = io.BytesIO()
@@ -306,11 +259,10 @@ if app_mode == "Resume Analysis":
                     data=pdf_output,
                     file_name=f"resume_feedback_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf",
                     mime="application/pdf"
-                ).strftime('%Y%m%d_%H%M%S')}.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                 )
 
             # --- General tips ---
+            st.markdown("""
             - Use action verbs (e.g., Led, Developed, Managed)
             - Quantify achievements (e.g., "Increased sales by 15%")
             - Keep formatting consistent
@@ -385,3 +337,4 @@ if app_mode == "Job Market Explorer":
         ax.imshow(wordcloud, interpolation='bilinear')
         ax.axis('off')
         st.pyplot(fig)
+
