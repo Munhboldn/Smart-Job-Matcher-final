@@ -1,0 +1,34 @@
+# Core Streamlit app and data handling
+streamlit>=1.28.0
+pandas>=2.0.0
+
+# Fix for ValueError: numpy.dtype size changed - Keep numpy pinned to 1.x
+numpy==1.26.4
+
+plotly>=5.13.0
+
+# Resume parsing libraries
+pymupdf>=1.21.1
+python-docx>=0.8.11
+docx2txt>=0.8
+
+# NLP and matching libraries
+nltk>=3.8.1
+# Pin spacy
+spacy==3.7.5
+
+# TEMPORARILY REMOVED FOR DIAGNOSIS: sentence-transformers and its dependencies (like torch)
+# sentence-transformers>=2.2.2
+# torch==... # (Remove any direct torch pin if you had one)
+
+scikit-learn>=1.2.2
+
+# Libraries for potential other features (wordcloud, matplotlib, openpyxl, requests)
+openpyxl>=3.1.2
+wordcloud>=1.9.0
+matplotlib>=3.7.0
+requests>=2.28.1
+
+# === SpaCy Model Installation ===
+# This line installs the specific model package compatible with spacy 3.7.5
+en_core_web_sm @ https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.7.0/en_core_web_sm-3.7.0.tar.gz#egg=en_core_web_sm
