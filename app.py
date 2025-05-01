@@ -222,13 +222,13 @@ if app_mode == "Resume Analysis":
     )
 
 
-                       # --- General tips ---
-            st.markdown("""
-            - Use action verbs (e.g., Led, Developed, Managed)
-            - Quantify achievements (e.g., "Increased sales by 15%")
-            - Keep formatting consistent
-            - Tailor your resume for the role
-            """)
+               # --- General tips ---
+     st.markdown("""
+    - Use action verbs (e.g., Led, Developed, Managed)
+    - Quantify achievements (e.g., "Increased sales by 15%")
+    - Keep formatting consistent
+    - Tailor your resume for the role
+              """)
 
 
 # --- Job Market Explorer ---
