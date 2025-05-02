@@ -195,7 +195,12 @@ if app_mode == "Resume-to-Job Matching":
                     with st.expander("View Job Details"):
                         st.markdown(highlighted_desc, unsafe_allow_html=True)
 
-            st.download_button()
+            st.download_button(
+    label="⬇ Download results as CSV",
+    data=open("output/matched_jobs.csv", "rb"),
+    file_name="matched_jobs.csv",
+    mime="text/csv"
+)
 
 with tab3:
     st.markdown("### 💡 Tips to Improve Your Resume")
