@@ -528,8 +528,8 @@ elif app_mode == "Resume-to-Job Matching":
 
 
                  st.dataframe(
-                     filtered_jobs_display,
-                     use_container_width=True
+                    filtered_jobs_display,
+                    use_container_width=True
                 )
 
             with tab2:
