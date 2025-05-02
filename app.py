@@ -1094,35 +1094,23 @@ elif app_mode == "Job Market Explorer":
 
             # Show job listing table
             st.markdown("#### Available Job Listings")
-            # Display URL as clickable link in DataFrame
-            def make_clickable_link(url):
-                if url and isinstance(url, str) and url.startswith('http'):
-                    return f'<a href="{url}" target="_blank">{url}</a>'
-                return url # Return as is if not a valid http link or not a string
+            MAX_DISPLAY = 10  # Limit how many jobs are shown
+            shown_jobs = filtered_jobs[['Job title', 'Company', 'Salary', 'URL']].head(MAX_DISPLAY)
+            
+            with st.expander(f"📄 Click to View Top {MAX_DISPLAY} Job Listings"):
+                for _, row in shown_jobs.iterrows():
+                    title = row.get('Job title', 'Unknown Job')
+                    company = row.get('Company', 'Unknown Company')
+                    salary = row.get('Salary', 'Not specified')
+                    url = row.get('URL', '')
 
-            # Apply the function to the URL column and display with unsafe_allow_html
-            # Modify the DataFrame column directly BEFORE passing to st.dataframe
-            filtered_jobs_display = filtered_jobs[['Job title', 'Company', 'Salary', 'URL']].copy()
-            filtered_jobs_display['URL'] = filtered_jobs_display['URL'].apply(make_clickable_link)
+                    if url and isinstance(url, str) and url.startswith("http"):
+                        st.markdown(f"- **{title}** at **{company}** – 💰 {salary} – [🔗 View Job Posting]({url})")
+                    else:
+                        st.markdown(f"- **{title}** at **{company}** – 💰 {salary} – No link available")
 
-            # --- Debugging Snippet ---
-            st.write("Debugging URL column:")
-            st.write(filtered_jobs_display['URL'].head()) # Display the first few URLs
-            st.write("URL column data types:")
-            st.write(filtered_jobs_display['URL'].apply(type).value_counts()) # Display data types
-            # --- End Debugging Snippet ---
-
-           
-            st.markdown("### Available Job Listings")
-            for _, row in filtered_jobs_display.iterrows():
-                title = row['Job title']
-                company = row['Company']
-                salary = row['Salary']
-                url = row['URL']
-                if url and isinstance(url, str) and url.startswith("http"):
-                    st.markdown(f"- **{title}** at **{company}** – 💰 {salary} – [View Job Posting]({url})")
-                else:
-                    st.markdown(f"- **{title}** at **{company}** – 💰 {salary} – No link available")
+            if len(filtered_jobs) > MAX_DISPLAY:
+                st.info(f"Only showing the first {MAX_DISPLAY} jobs. Refine filters to see more.")
 
 
             # Word cloud of job requirements keywords
