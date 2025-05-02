@@ -144,7 +144,53 @@ with st.sidebar:
     st.header("⚙️ Options")
     
     # App mode selection
-    app_mode = st.radio("Select Mode", ["Resume-to-Job Matching", "Resume Analysis", "Job Market Explorer"])
+    app_mode = st.radio("Select Mode", ["Resume-to-Job Matching", "Resume Analysis", "Job Market Explorer", "Resume Creator"])
+ 
+    elif app_mode == "Resume Creator":
+    st.markdown('<div class="sub-header">📄 Resume Creator</div>', unsafe_allow_html=True)
+    
+    st.info("Fill in the fields below to generate your resume")
+
+    name = st.text_input("Full Name")
+    email = st.text_input("Email")
+    phone = st.text_input("Phone")
+    linkedin = st.text_input("LinkedIn URL")
+    summary = st.text_area("Professional Summary", height=100)
+    
+    st.markdown("### 🏫 Education")
+    education = st.text_area("List your education background", height=150)
+    
+    st.markdown("### 💼 Work Experience")
+    experience = st.text_area("List your work experience", height=200)
+    
+    st.markdown("### 🛠️ Skills")
+    skills = st.text_area("List your skills separated by commas")
+
+    if st.button("Generate Resume"):
+        from docx import Document
+        doc = Document()
+        doc.add_heading(name, 0)
+        doc.add_paragraph(f"{email} | {phone} | {linkedin}")
+        doc.add_heading("Professional Summary", level=1)
+        doc.add_paragraph(summary)
+        doc.add_heading("Education", level=1)
+        doc.add_paragraph(education)
+        doc.add_heading("Work Experience", level=1)
+        doc.add_paragraph(experience)
+        doc.add_heading("Skills", level=1)
+        doc.add_paragraph(skills)
+
+        # Save to in-memory buffer
+        buffer = io.BytesIO()
+        doc.save(buffer)
+        buffer.seek(0)
+
+        st.download_button(
+            label="📄 Download Resume",
+            data=buffer,
+            file_name=f"{name}_resume.docx",
+            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        )
     
     # Load jobs based on the mode
     if app_mode == "Job Market Explorer":
