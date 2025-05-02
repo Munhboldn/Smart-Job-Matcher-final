@@ -147,31 +147,24 @@ with st.sidebar:
     app_mode = st.radio("Select Mode", ["Resume-to-Job Matching", "Resume Analysis", "Job Market Explorer", "Resume Creator"])
  
     
-    # Load jobs based on the mode
     if app_mode == "Job Market Explorer":
         jobs_df = load_jobs()
-        
-        # Job market filters
         st.subheader("Job Market Filters")
-        salary_min = st.number_input("Minimum Salary (₮)", min_value=0, value=0, step=100000)
-
+        salary_min = st.number_input("Minimum Salary (\u20ae)", min_value=0, value=0, step=100000)
     else:
         jobs_df = load_jobs()
 
-    # About section
     st.markdown("---")
     st.write("#### About")
     st.write("""
     Smart Job Matcher helps you find jobs that match your skills and experience using advanced AI matching technology.
-    
+
     Upload your resume and get personalized job recommendations!
     """)
 
-# Main app content
-
-elif app_mode == "Resume Creator":
-    st.markdown('<div class="sub-header">📄 Resume Creator</div>', unsafe_allow_html=True)
-    
+# === Resume Creator Mode ===
+if app_mode == "Resume Creator":
+    st.markdown('<div class="sub-header">\ud83d\udcc4 Resume Creator</div>', unsafe_allow_html=True)
     st.info("Fill in the fields below to generate your resume")
 
     name = st.text_input("Full Name")
@@ -179,14 +172,14 @@ elif app_mode == "Resume Creator":
     phone = st.text_input("Phone")
     linkedin = st.text_input("LinkedIn URL")
     summary = st.text_area("Professional Summary", height=100)
-    
-    st.markdown("### 🏫 Education")
+
+    st.markdown("### \ud83c\udfeb Education")
     education = st.text_area("List your education background", height=150)
-    
-    st.markdown("### 💼 Work Experience")
+
+    st.markdown("### \ud83d\udcbc Work Experience")
     experience = st.text_area("List your work experience", height=200)
-    
-    st.markdown("### 🛠️ Skills")
+
+    st.markdown("### \ud83d\udee0\ufe0f Skills")
     skills = st.text_area("List your skills separated by commas")
 
     if st.button("Generate Resume"):
@@ -203,13 +196,12 @@ elif app_mode == "Resume Creator":
         doc.add_heading("Skills", level=1)
         doc.add_paragraph(skills)
 
-        # Save to in-memory buffer
         buffer = io.BytesIO()
         doc.save(buffer)
         buffer.seek(0)
 
         st.download_button(
-            label="📄 Download Resume",
+            label="\ud83d\udcc4 Download Resume",
             data=buffer,
             file_name=f"{name}_resume.docx",
             mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
