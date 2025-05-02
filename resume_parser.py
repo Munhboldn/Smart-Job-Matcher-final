@@ -118,4 +118,5 @@ def extract_resume_sections(text):
         'summary': r'^\s*(summary|objective|about)\s*$', # Added Summary/Objective
         'education': r'^\s*(education|academic|qualification|degree|university|school)\s*$',
         'experience': r'^\s*(experience|employment|work|history|professional|career)\s*$',
-        'skills': r'^\s*(skills|abilities|expertise|c
+        'skills': r'^\s*(skills|abilities|expertise|competencies|technical skills)\s*$',
+
