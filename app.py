@@ -618,7 +618,7 @@ elif app_mode == "Resume-to-Job Matching":
                 label="⬇ Download results as Excel",
                 data=output,
                 file_name="matched_jobs.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.document",
                 key="matching_download_button"
             )
 
@@ -1127,9 +1127,3 @@ elif app_mode == "Job Market Explorer":
                      st.error(f"Error generating word cloud: {e}")
             else:
                 st.info("No sufficient job description/requirements text available to generate a word cloud.")
-
-
-# Footer
-st.markdown("---")
-st.write("Developed with ❤️ using Streamlit")
-st.write("Data source: Zangia (Filtered public listings)")
