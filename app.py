@@ -238,11 +238,7 @@ with tab3:
 - **Reverse Chronological Order**: List your experience and education with the most recent items first.
 - **File Type**: Save your resume as a PDF or DOCX. PDF is often preferred for maintaining formatting, but check the application instructions.
 """)
-    """)")
-
-        """)
-                mime="text/csv"
-            )
+   
 
 # Resume Analysis View
 elif app_mode == "Resume Analysis":
