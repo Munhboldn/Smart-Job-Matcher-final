@@ -526,9 +526,9 @@ elif app_mode == "Resume-to-Job Matching":
                 filtered_jobs_display = st.session_state.job_results[['Job title', 'Company', 'Salary', 'match_score', 'URL']].copy()
                 filtered_jobs_display['URL'] = filtered_jobs_display['URL'].apply(make_clickable_link)
 
-                 st.dataframe(
-                     filtered_jobs_display,
-                     use_container_width=True
+                st.dataframe(
+                    filtered_jobs_display,
+                    use_container_width=True
                 )
 
             with tab2:
