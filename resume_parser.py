@@ -19,6 +19,7 @@ except:
         import subprocess
         subprocess.run(["python", "-m", "spacy", "download", "en_core_web_sm"], check=True)
         nlp = spacy.load('en_core_web_sm')
+        print("spaCy model downloaded and loaded successfully.")
     except Exception as e:
         print(f"Error loading or downloading spaCy model: {e}")
         print("Proceeding without spaCy NER features.")
@@ -120,7 +121,7 @@ def extract_resume_sections(text):
         'projects': r'^\s*(projects|portfolio|works)\s*$',
         'achievements': r'^\s*(achievements|accomplishments|honors|awards)\s*$',
         'languages': r'^\s*(languages|linguistic)\s*$',
-        'references': r'^\s*(references|recommendations)\s*$'
+        'references': r'^\s*(references|recommendations)' # Removed $ anchor to allow trailing text on the header line
     }
 
     sections = defaultdict(str)
@@ -134,17 +135,26 @@ def extract_resume_sections(text):
         line_lower = line.lower().strip()
         # Check if the line matches any section pattern and is reasonably short
         for section_name, pattern in section_patterns.items():
-            if re.match(pattern, line_lower, re.IGNORECASE) and len(line_lower.split()) < 5: # Use re.match and check word count
+            # Use re.search instead of re.match to find pattern anywhere on the line
+            # Keep word count check to avoid matching long sentences
+            if re.search(pattern, line_lower, re.IGNORECASE) and len(line_lower.split()) < 5:
                 section_starts[i] = section_name # Map line index to section name
                 section_found = True
                 break # Move to the next line once a header is matched
 
+    # Get sorted list of line indices where sections start
+    sorted_start_lines = sorted(section_starts.keys())
+
     # Second pass: Iterate through lines and assign content to sections
     current_section = 'other'
+    section_start_index = 0 # Index for iterating through sorted_start_lines
+
     for i, line in enumerate(lines):
-        if i in section_starts:
-            # If this line is a section header, update the current section
+        # Check if the current line is the start of the next section in our sorted list
+        if section_start_index < len(sorted_start_lines) and i == sorted_start_lines[section_start_index]:
+            # Update the current section name
             current_section = section_starts[i]
+            section_start_index += 1 # Move to the next expected section start line
             # Optionally, you might want to add the header line itself to the section content
             # sections[current_section] += line.strip() + "\n" # Decide if headers should be included
         else:
@@ -156,16 +166,15 @@ def extract_resume_sections(text):
         sections[section_name] = re.sub(r'\n{2,}', '\n\n', sections[section_name].strip()) # Reduce multiple newlines within sections
 
     # Handle case where no standard headers were found - put everything in 'content'
-    # Only do this if 'other' is the only section found OR if no section headers were mapped
-    if not section_found or (len(sections) == 1 and 'other' in sections):
+    # Only do this if 'other' is the only section found after processing
+    if not section_found or (len(sections) == 1 and 'other' in sections and sections['other'].strip()):
          sections = {'content': text.strip()}
     else:
         # If 'other' section exists but contains only whitespace after cleaning, remove it
         if 'other' in sections and not sections['other'].strip():
              del sections['other']
-        # If 'other' section exists and has content, decide if it should be part of 'content' or kept
-        # For simplicity, if standard sections were found, keep 'other' for unclassified text at the start/end
-        pass # Keep 'other' if it has content and other sections were found
+        # If 'other' section exists and has content, keep it for unclassified text at the start/end
+        pass
 
 
     return dict(sections) # Convert defaultdict back to dict
@@ -182,21 +191,19 @@ def extract_contact_info(text):
     linkedin = re.findall(linkedin_pattern, text)
 
     locations = []
+    name = []
     # Use spaCy only if the model loaded successfully
     if nlp:
         doc = nlp(text[:2000]) # Process a larger chunk for location/name
         locations = list(set([ent.text for ent in doc.ents if ent.label_ == "GPE"])) # Use set to get unique locations
 
         # Basic attempt to get a name from the first few lines if no contact section found
-        name = []
-        if 'contact' not in extract_resume_sections(text) and nlp: # Avoid re-parsing if sections already found
-             first_lines = "\n".join(text.strip().split('\n')[:5]) # Look at the first 5 lines
-             doc_first = nlp(first_lines)
-             # Look for PERSON entities in the first lines
-             names_found = [ent.text for ent in doc_first.ents if ent.label_ == "PERSON"]
-             if names_found:
-                  # Take the longest name found as a potential candidate
-                  name = [max(names_found, key=len)]
+        # Also look for PERSON entities anywhere if a contact section IS found, but prioritize start
+        doc_full = nlp(text[:500]) # Look at the first 500 characters for a name
+        names_found = [ent.text for ent in doc_full.ents if ent.label_ == "PERSON"]
+        if names_found:
+             # Take the longest name found as a potential candidate
+             name = [max(names_found, key=len)]
 
 
     return {
@@ -204,14 +211,17 @@ def extract_contact_info(text):
         'phones': phones,
         'linkedin': linkedin,
         'locations': locations,
-        # 'name': name # You could add name extraction here if needed for display
+        'name': name # Include name extraction here
     }
 
 def analyze_resume(text):
     """Analyzes resume text for structure, contact info, and completeness."""
     # Check if text extraction failed
-    if text.startswith("Error extracting"):
+    if isinstance(text, str) and text.startswith("Error extracting"):
         return {'error': text}
+    if not isinstance(text, str) or not text.strip():
+         return {'error': "No text extracted from resume."}
+
 
     sections = extract_resume_sections(text)
     contact_info = extract_contact_info(text)
@@ -227,9 +237,10 @@ def analyze_resume(text):
         }
 
     # Calculate completeness score based on presence and length of key sections
+    # Adjusted weights slightly to make 100 achievable with core sections + contact
     section_weights = {
-        'contact': 10, # Weight for contact info presence
-        'summary': 5,
+        'contact': 15, # Increased weight for contact info presence
+        'summary': 10,
         'education': 20,
         'experience': 30,
         'skills': 20,
@@ -241,20 +252,21 @@ def analyze_resume(text):
     completeness_score = 0
 
     # Add score for contact info presence
-    if contact_info['emails']: completeness_score += 5
-    if contact_info['phones']: completeness_score += 5
-    if contact_info['linkedin']: completeness_score += 3
-    if contact_info['locations']: completeness_score += 2
-    # Max contact score = 15 (if all found) - Adjust weights accordingly if needed
+    # Max contact score = 15 (5 for email, 5 for phone, 3 for linkedin, 2 for location)
+    if contact_info.get('emails'): completeness_score += 5
+    if contact_info.get('phones'): completeness_score += 5
+    if contact_info.get('linkedin'): completeness_score += 3
+    if contact_info.get('locations'): completeness_score += 2
+    if contact_info.get('name'): completeness_score += 3 # Add score for name detection
+
 
     # Add score for sections based on presence and minimum content length
     min_section_length = 50 # Minimum characters to consider a section present and meaningful
     for section, weight in section_weights.items():
         # Check if the section was detected AND has sufficient content
-        if section in sections and len(sections[section].strip()) > min_section_length:
-             # For contact, the weight is already added above based on specific fields
-             if section != 'contact':
-                completeness_score += weight
+        # Exclude 'contact' from this length check as its presence is scored above
+        if section != 'contact' and section in sections and len(sections[section].strip()) > min_section_length:
+             completeness_score += weight
 
     # Cap score at 100
     completeness_score = min(completeness_score, 100)
