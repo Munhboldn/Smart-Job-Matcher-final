@@ -1107,6 +1107,13 @@ elif app_mode == "Job Market Explorer":
             filtered_jobs_display = filtered_jobs[['Job title', 'Company', 'Salary', 'URL']].copy()
             filtered_jobs_display['URL'] = filtered_jobs_display['URL'].apply(make_clickable_link)
 
+            # --- Debugging Snippet ---
+st.write("Debugging URL column:")
+st.write(filtered_jobs_display['URL'].head()) # Display the first few URLs
+st.write("URL column data types:")
+st.write(filtered_jobs_display['URL'].apply(type).value_counts()) # Display data types
+# --- End Debugging Snippet ---
+
             st.dataframe(
                 filtered_jobs_display, # Use the modified DataFrame
                 use_container_width=True,
