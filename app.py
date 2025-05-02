@@ -239,14 +239,7 @@ with tab3:
 - **File Type**: Save your resume as a PDF or DOCX. PDF is often preferred for maintaining formatting, but check the application instructions.
 """)
     """)")
-st.markdown("""
-- **Use Standard Section Headings**: Use clear, common titles like "Education", "Experience", "Skills", "Projects", etc.
-- **Include Keywords**: Mirror the language and keywords used in the job description throughout your resume, especially in skills and experience sections.
-- **Simple Formatting**: Avoid complex layouts, tables, text boxes, headers/footers (some systems struggle with these), and heavy graphics. Use bullet points effectively.
-- **Standard Fonts**: Stick to widely recognized fonts (Arial, Calibri, Times New Roman, Georgia, Verdana) and a font size between 10-12pt.
-- **Reverse Chronological Order**: List your experience and education with the most recent items first.
-- **File Type**: Save your resume as a PDF or DOCX. PDF is often preferred for maintaining formatting, but check the application instructions.
-""")
+
         """)
                 mime="text/csv"
             )
