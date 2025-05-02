@@ -5,18 +5,29 @@ import io
 import plotly.express as px
 import plotly.graph_objects as go
 import time
-from resume_parser import extract_text_from_pdf, extract_text_from_docx, analyze_resume, extract_resume_sections
-from semantic_matcher import (
-    semantic_match_resume, 
-    extract_resume_keywords, 
-    extract_skills_from_resume,
-    get_skill_matches,
-    analyze_resume as analyze_resume_skills
-)
+import re # Import regex for salary extraction
+from collections import Counter # Import Counter for missing skills
+
+# Import your custom modules
+# Make sure these modules are in your project directory
+try:
+    from resume_parser import extract_text_from_pdf, extract_text_from_docx, analyze_resume as analyze_resume_structure # Renamed to avoid conflict
+    from semantic_matcher import (
+        semantic_match_resume,
+        extract_resume_keywords, # Assuming this exists in your module
+        extract_skills_from_resume, # Assuming this exists in your module
+        get_skill_matches,
+        analyze_resume as analyze_resume_skills # Renamed to avoid conflict
+    )
+    from wordcloud import WordCloud # Import WordCloud directly
+    import matplotlib.pyplot as plt # Import matplotlib directly
+except ImportError as e:
+    st.error(f"Missing required modules: {e}. Please ensure resume_parser.py, semantic_matcher.py, and necessary libraries are installed.")
+    st.stop() # Stop execution if modules are missing
 
 # Page configuration with custom theme
 st.set_page_config(
-    page_title="Smart Job Matcher", 
+    page_title="Smart Job Matcher",
     layout="wide",
     initial_sidebar_state="expanded",
     menu_items={
@@ -25,80 +36,85 @@ st.set_page_config(
 )
 
 # Apply custom styling
+# Added some basic styles for the custom classes used in markdown
 st.markdown("""
 <style>
     .main-header {
-        font-size: 2.5rem;
-        color: #1E88E5;
+        font-size: 2.5em;
+        font-weight: bold;
+        color: #1E3A8A; /* Dark Blue */
         text-align: center;
-        margin-bottom: 1rem;
+        margin-bottom: 30px;
+        text-shadow: 1px 1px 2px #cccccc;
     }
     .sub-header {
-        font-size: 1.8rem;
-        color: #0D47A1;
-        margin-top: 2rem;
-        padding-bottom: 0.5rem;
-        border-bottom: 2px solid #E3F2FD;
-    }
-    .job-title {
-        font-size: 1.5rem;
-        color: #1565C0;
+        font-size: 1.8em;
         font-weight: bold;
-        margin-bottom: 0.5rem;
+        color: #3B82F6; /* Medium Blue */
+        margin-top: 20px;
+        margin-bottom: 15px;
+        border-bottom: 2px solid #EFF6FF; /* Light Blue */
+        padding-bottom: 5px;
     }
     .match-section {
-        background-color: #E3F2FD;
-        padding: 1rem;
-        border-radius: 0.5rem;
-        margin: 1rem 0;
+        border: 1px solid #D1D5DB; /* Light Gray */
+        border-radius: 8px;
+        padding: 15px;
+        margin-bottom: 20px;
+        box-shadow: 2px 2px 8px rgba(0,0,0,0.1);
+    }
+    .job-title {
+        font-size: 1.3em;
+        font-weight: bold;
+        color: #1E40AF; /* Darker Blue */
+        margin-bottom: 5px;
     }
     .match-score-high {
-        font-size: 1.2rem;
-        color: #2E7D32;
+        color: #16A34A; /* Green */
         font-weight: bold;
     }
     .match-score-medium {
-        font-size: 1.2rem;
-        color: #FF8F00;
+        color: #D97706; /* Amber */
         font-weight: bold;
     }
     .match-score-low {
-        font-size: 1.2rem;
-        color: #C62828;
+        color: #DC2626; /* Red */
         font-weight: bold;
     }
     .matched-keywords {
-        background-color: #E8F5E9;
-        padding: 0.5rem;
-        border-radius: 0.3rem;
+        color: #065F46; /* Dark Green */
+        font-size: 0.9em;
+        margin-top: 10px;
     }
     .missing-keywords {
-        background-color: #FFEBEE;
-        padding: 0.5rem;
-        border-radius: 0.3rem;
+        color: #991B1B; /* Dark Red */
+        font-size: 0.9em;
+        margin-top: 5px;
     }
-    .tips-section {
-        background-color: #E8F5E9;
-        padding: 1rem;
-        border-radius: 0.5rem;
-        margin-top: 1rem;
-    }
-    .loading-spinner {
-        text-align: center;
-        margin: 2rem 0;
-    }
+     .tips-section {
+        background-color: #F3F4F6; /* Lighter Gray */
+        border-left: 4px solid #60A5FA; /* Blue */
+        padding: 15px;
+        border-radius: 4px;
+        margin-top: 20px;
+        margin-bottom: 20px;
+     }
 </style>
 """, unsafe_allow_html=True)
+
 
 # Initialize session state for storing resume data
 if 'resume_text' not in st.session_state:
     st.session_state.resume_text = ""
-if 'resume_analysis' not in st.session_state:
-    st.session_state.resume_analysis = None
+if 'resume_structure_analysis' not in st.session_state: # Renamed
+    st.session_state.resume_structure_analysis = None
 if 'job_results' not in st.session_state:
     st.session_state.job_results = None
 if 'skills_extracted' not in st.session_state:
     st.session_state.skills_extracted = []
+if 'resume_skills_analysis' not in st.session_state: # Added for skills analysis results
+    st.session_state.resume_skills_analysis = None
+
 
 # Custom header
 st.markdown('<div class="main-header">💼 Smart Job Matcher</div>', unsafe_allow_html=True)
@@ -112,375 +128,528 @@ def load_jobs():
         df['Salary'] = df['Salary'].fillna('Not specified')
         df['Job description'] = df['Job description'].fillna('')
         df['Requirements'] = df['Requirements'].fillna('')
+        # Ensure URL column exists and is string type
+        if 'URL' not in df.columns:
+            df['URL'] = '#' # Default or placeholder if no URL column
+        df['URL'] = df['URL'].astype(str)
         return df
+    except FileNotFoundError:
+        st.error("Error: zangia_filtered_jobs.csv not found. Please ensure the data file is in the 'data' directory.")
+        return pd.DataFrame(columns=['Job title', 'Company', 'Salary', 'Job description', 'Requirements', 'URL'])
     except Exception as e:
         st.error(f"Error loading job data: {str(e)}")
         # Return empty dataframe with expected columns
         return pd.DataFrame(columns=['Job title', 'Company', 'Salary', 'Job description', 'Requirements', 'URL'])
 
+# Load jobs data upfront
+jobs_df = load_jobs()
+if jobs_df.empty:
+     st.stop() # Stop if job data couldn't be loaded
+
 # Grouped sector keywords with enhanced categories
 sector_options = {
-    "Education & Management": ["багш", "сургалт", "удирдлага", "education", "teacher", "lecturer", "professor", "academic"],
-    "Customer Service": ["customer service", "үйлчилгээ", "захиалга", "client", "support", "help desk", "call center"],
-    "Leadership": ["менежер", "захирал", "manager", "director", "executive", "chief", "head of", "supervisor"],
-    "Tech & Development": ["developer", "инженер", "програм", "software", "programmer", "coder", "IT", "tech", "web", "mobile"],
-    "Creative & Marketing": ["дизайн", "сошиал", "контент", "media", "designer", "creative", "marketing", "brand", "SEO", "content"],
-    "Finance": ["нягтлан", "санхүү", "finance", "accountant", "accounting", "financial", "budget", "tax", "banking"],
-    "Healthcare": ["эмч", "сувилагч", "health", "эрүүл мэнд", "doctor", "nurse", "medical", "healthcare", "clinic", "hospital"],
-    "Logistics & Support": ["logistics", "тээвэр", "нярав", "туслах", "warehouse", "shipping", "supply chain", "inventory"],
-    "Data & AI": ["data analyst", "data scientist", "AI", "мэдээлэл шинжээч", "machine learning", "analytics", "big data", "statistics"],
+    "Education & Management": ["багш", "сургалт", "удирдлага", "education", "teacher", "lecturer", "professor", "academic", "сургууль", "их сургууль", "коллеж", "менежмент", "дарга", "захирал"],
+    "Customer Service": ["customer service", "үйлчилгээ", "захиалга", "client", "support", "help desk", "call center", "харилцагч", "оператор"],
+    "Leadership": ["менежер", "захирал", "manager", "director", "executive", "chief", "head of", "supervisor", "ахлагч", "удирдагч"],
+    "Tech & Development": ["developer", "инженер", "програм", "software", "programmer", "coder", "IT", "tech", "web", "mobile", "систем", "сүлжээ", "мэдээллийн технологи", "программист"],
+    "Creative & Marketing": ["дизайн", "сошиал", "контент", "media", "designer", "creative", "marketing", "brand", "SEO", "content", "маркетинг", "креатив", "зурагчин", "редактор"],
+    "Finance": ["нягтлан", "санхүү", "finance", "accountant", "accounting", "financial", "budget", "tax", "banking", "касс", "данс", "аудит"],
+    "Healthcare": ["эмч", "сувилагч", "health", "эрүүл мэнд", "doctor", "nurse", "medical", "healthcare", "clinic", "hospital", "фармаци", "жолооч", "үйлчлэгч"], # Added some potentially related lower-skill roles often in healthcare
+    "Logistics & Support": ["logistics", "тээвэр", "нярав", "туслах", "warehouse", "shipping", "supply chain", "inventory", "хангамж", "ложистик", "жолооч", "үйлчлэгч", "ачигч", "мастер"], # Added some potentially related lower-skill roles
+    "Data & AI": ["data analyst", "data scientist", "AI", "мэдээлэл шинжээч", "machine learning", "analytics", "big data", "statistics", "шинжилгээ", "дата"],
     "HR & Recruitment": ["HR", "хүний нөөц", "recruiter", "talent", "hiring", "recruitment", "personnel", "staffing"],
-    "Legal & Compliance": ["хууль", "lawyer", "legal", "compliance", "attorney", "law", "regulatory", "contracts"],
-    "Sales": ["борлуулалт", "sales", "зөвлөх", "business development", "account manager", "retail", "revenue"],
-    "Project Management": ["төслийн менежер", "project manager", "project coordinator", "scrum", "agile", "program manager"],
-    "Engineering & Construction": ["механик", "цахилгаан", "civil", "барилга", "engineer", "mechanical", "electrical", "construction"]
+    "Legal & Compliance": ["хууль", "lawyer", "legal", "compliance", "attorney", "law", "regulatory", "contracts", "өмгөөлөгч", "эрх зүйч", "комплаенс"],
+    "Sales": ["борлуулалт", "sales", "зөвлөх", "business development", "account manager", "retail", "revenue", "худалдаа", "төлөөлөгч"],
+    "Project Management": ["төслийн менежер", "project manager", "project coordinator", "scrum", "agile", "program manager", "төсөл", "зохицуулагч"],
+    "Engineering & Construction": ["механик", "цахилгаан", "civil", "барилга", "engineer", "mechanical", "electrical", "construction", "инженер", "барилгачин", "цахилгаанчин", "сантехникч", "холбоочин", "баригч"] # Added more specific roles
 }
-
 # Create flat keyword list from the grouped options
 all_keywords = sorted(set([kw for group in sector_options.values() for kw in group]))
+
 
 # Sidebar for filters and settings
 with st.sidebar:
     st.header("⚙️ Options")
-    
     # App mode selection
     app_mode = st.radio("Select Mode", ["Resume-to-Job Matching", "Resume Analysis", "Job Market Explorer", "Resume Creator"])
- 
-    
+
+    # Add filters specific to Job Market Explorer mode
     if app_mode == "Job Market Explorer":
-        jobs_df = load_jobs()
         st.subheader("Job Market Filters")
-        salary_min = st.number_input("Minimum Salary (\u20ae)", min_value=0, value=0, step=100000)
-    else:
-        jobs_df = load_jobs()
+        # Use the loaded jobs_df for filter options
+        available_companies = sorted(jobs_df['Company'].unique().tolist())
+        selected_companies = st.multiselect("Filter by Company", options=available_companies, placeholder="Select companies...")
+
+        available_salaries = jobs_df['Salary'].unique().tolist()
+        # Try to find min/max numeric salaries for slider if possible
+        numeric_salaries = []
+        for s in available_salaries:
+             if isinstance(s, (int, float)):
+                  numeric_salaries.append(s)
+             elif isinstance(s, str):
+                  # Simple extraction attempt
+                  numbers = re.findall(r'\d+', s.replace(',', '')) # Remove commas for large numbers
+                  if numbers:
+                       # Use the first number found as a proxy
+                       numeric_salaries.append(int(numbers[0]))
+
+        min_salary_val = min(numeric_salaries) if numeric_salaries else 0
+        max_salary_val = max(numeric_salaries) if numeric_salaries else 10_000_000 # Set a reasonable upper bound if data is missing
+
+        salary_min = st.slider(
+            "Minimum Salary (\u20ae)",
+            min_value=min_salary_val,
+            max_value=max_salary_val,
+            value=min_salary_val,
+            step=100000,
+            help="Filter jobs by minimum advertised salary. Note: Many jobs do not specify salary."
+        )
+
+        available_sectors = list(sector_options.keys())
+        selected_job_sectors = st.multiselect("Filter by Sector", options=available_sectors, placeholder="Select sectors...")
+
 
     st.markdown("---")
     st.write("#### About")
     st.write("""
     Smart Job Matcher helps you find jobs that match your skills and experience using advanced AI matching technology.
-
-    Upload your resume and get personalized job recommendations!
     """)
+    st.write("Upload your resume in 'Resume-to-Job Matching' or 'Resume Analysis' modes.")
+
+
+# === App Modes ===
 
 # === Resume Creator Mode ===
 if app_mode == "Resume Creator":
-    st.markdown('📄 Resume Creator', unsafe_allow_html=True)
-    st.info("Fill in the fields below to generate your resume")
+    st.markdown('📄 Resume Creator', unsafe_allow_html=True) # Corrected emoji
 
-    name = st.text_input("Full Name")
-    email = st.text_input("Email")
-    phone = st.text_input("Phone")
-    linkedin = st.text_input("LinkedIn URL")
-    summary = st.text_area("Professional Summary", height=100)
+    st.info("Fill in the fields below to generate a basic resume (DOCX format)")
 
-    st.markdown("### 🎓 Education")
-    education = st.text_area("List your education background", height=150)
+    name = st.text_input("Full Name", "")
+    email = st.text_input("Email", "")
+    phone = st.text_input("Phone", "")
+    linkedin = st.text_input("LinkedIn URL", "")
+    summary = st.text_area("Professional Summary", height=100, value="")
 
-    st.markdown("### 💼 Work Experience")
-    experience = st.text_area("List your work experience", height=200)
+    st.markdown("### 🎓 Education") # Corrected emoji
+    education = st.text_area("List your education background (e.g., Degree, University, Dates)", height=150, value="")
 
-    st.markdown("### 🛠️ Skills")
-    skills = st.text_area("List your skills separated by commas")
+    st.markdown("### 💼 Work Experience") # Corrected emoji
+    experience = st.text_area("List your work experience (e.g., Job Title, Company, Dates, Responsibilities/Achievements)", height=200, value="")
+
+    st.markdown("### 🛠️ Skills") # Corrected emoji
+    skills_input = st.text_area("List your key skills (separated by commas)", value="")
 
     if st.button("Generate Resume"):
-        from docx import Document
-        doc = Document()
-        doc.add_heading(name, 0)
-        doc.add_paragraph(f"{email} | {phone} | {linkedin}")
-        doc.add_heading("Professional Summary", level=1)
-        doc.add_paragraph(summary)
-        doc.add_heading("Education", level=1)
-        doc.add_paragraph(education)
-        doc.add_heading("Work Experience", level=1)
-        doc.add_paragraph(experience)
-        doc.add_heading("Skills", level=1)
-        doc.add_paragraph(skills)
+        if not name or not (email or phone or linkedin):
+             st.warning("Please fill in at least Name and some Contact Information.")
+        else:
+            from docx import Document
+            doc = Document()
 
-        buffer = io.BytesIO()
-        doc.save(buffer)
-        buffer.seek(0)
+            # Add Name and Contact Info
+            doc.add_heading(name, 0)
+            contact_parts = []
+            if email: contact_parts.append(email)
+            if phone: contact_parts.append(phone)
+            if linkedin: contact_parts.append(linkedin)
+            if contact_parts:
+                doc.add_paragraph(" | ".join(contact_parts))
+            doc.add_paragraph() # Add a blank line
 
-        st.download_button(
-            label="📄 Download Resume",
-            data=buffer,
-            file_name=f"{name}_resume.docx",
-            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-        )
+            # Add Summary
+            if summary.strip():
+                doc.add_heading("Professional Summary", level=1)
+                doc.add_paragraph(summary)
+                doc.add_paragraph()
 
-if app_mode == "Resume-to-Job Matching":
+            # Add Education
+            if education.strip():
+                doc.add_heading("Education", level=1)
+                doc.add_paragraph(education)
+                doc.add_paragraph()
+
+            # Add Experience
+            if experience.strip():
+                doc.add_heading("Work Experience", level=1)
+                doc.add_paragraph(experience)
+                doc.add_paragraph()
+
+            # Add Skills
+            if skills_input.strip():
+                doc.add_heading("Skills", level=1)
+                doc.add_paragraph(skills_input)
+                doc.add_paragraph()
+
+
+            buffer = io.BytesIO()
+            doc.save(buffer)
+            buffer.seek(0)
+
+            st.download_button(
+                label="📄 Download Resume", # Corrected emoji
+                data=buffer,
+                file_name=f"{name.replace(' ', '_')}_resume.docx" if name else "my_resume.docx",
+                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            )
+            st.success("Resume generated! Download the DOCX file.")
+
+
+# === Resume-to-Job Matching Mode ===
+elif app_mode == "Resume-to-Job Matching":
+
     col1, col2 = st.columns([2, 1])
-    
     with col1:
         # Upload resume section
         st.markdown('<div class="sub-header">📄 Upload Your Resume</div>', unsafe_allow_html=True)
-        uploaded_file = st.file_uploader("", type=["pdf", "docx"])
-        
+        uploaded_file = st.file_uploader("", type=["pdf", "docx"], key="matching_uploader") # Added unique key
+
+        # Process uploaded file and store in session state
         if uploaded_file:
-            # Extract resume text with progress indication
-            with st.spinner("Processing resume..."):
-                if uploaded_file.name.endswith(".pdf"):
-                    resume_text = extract_text_from_pdf(uploaded_file)
-                elif uploaded_file.name.endswith(".docx"):
-                    resume_text = extract_text_from_docx(uploaded_file)
+            if uploaded_file.name != st.session_state.get('last_matching_upload_name'): # Check if a new file was uploaded
+                 st.session_state.resume_text = "" # Clear previous data if new file
+                 st.session_state.resume_structure_analysis = None
+                 st.session_state.resume_skills_analysis = None
+                 st.session_state.skills_extracted = []
+                 st.session_state.job_results = None # Clear previous job results
+                 st.session_state.last_matching_upload_name = uploaded_file.name # Store current file name
+
+
+            # Extract resume text if not already done for this file
+            if not st.session_state.resume_text:
+                with st.spinner("Processing resume..."):
+                    if uploaded_file.name.endswith(".pdf"):
+                        resume_text = extract_text_from_pdf(uploaded_file)
+                    elif uploaded_file.name.endswith(".docx"):
+                        resume_text = extract_text_from_docx(uploaded_file)
+                    else:
+                        st.error("Unsupported file format.")
+                        resume_text = ""
+
+                    # Store in session state
+                    st.session_state.resume_text = resume_text
+
+                    # Analyze resume if text is available
+                    if st.session_state.resume_text:
+                         st.session_state.resume_structure_analysis = analyze_resume_structure(st.session_state.resume_text)
+                         # Extract skills and keywords using the skills analysis function
+                         skills_analysis = analyze_resume_skills(st.session_state.resume_text)
+                         st.session_state.resume_skills_analysis = skills_analysis
+                         st.session_state.skills_extracted = skills_analysis.get("skills", []) # Store just the skill list
+
+                if st.session_state.resume_text:
+                    st.success("Resume processed successfully!")
                 else:
-                    st.error("Unsupported file format.")
-                    resume_text = ""
-                
-                # Store in session state
-                st.session_state.resume_text = resume_text
-                
-                # Analyze resume
-                resume_analysis = analyze_resume(resume_text)
-                st.session_state.resume_analysis = resume_analysis
-                
-                # Extract skills
-                skills_analysis = analyze_resume_skills(resume_text)
-                st.session_state.skills_extracted = skills_analysis["skills"]
-            
+                    st.error("Could not extract text from the resume.")
+
+
             # Display extracted text in an expandable section
-            with st.expander("View Extracted Resume Text", expanded=False):
-                st.text_area("", resume_text, height=200)
-    
+            if st.session_state.resume_text:
+                 with st.expander("View Extracted Resume Text", expanded=False):
+                     st.text_area("", st.session_state.resume_text, height=200, disabled=True)
+
+
     with col2:
-        if uploaded_file:
-            # Display resume stats
+        # Display resume stats if analysis was successful
+        if st.session_state.resume_structure_analysis is not None:
             st.markdown('<div class="sub-header">📊 Resume Stats</div>', unsafe_allow_html=True)
-            
+
             # Resume completeness score
-            completeness = st.session_state.resume_analysis.get('completeness_score', 0)
+            completeness = st.session_state.resume_structure_analysis.get('completeness_score', 0)
             st.markdown(f"**Resume Completeness:** {completeness}%")
             st.progress(completeness/100)
-            
+
             # Resume sections found
             st.markdown("**Detected Sections:**")
-            sections = st.session_state.resume_analysis.get('sections', {})
-            for section in sections:
-                if section != 'other' and section != 'content':
-                    st.markdown(f"- {section.title()}")
-            
+            sections = st.session_state.resume_structure_analysis.get('sections', {})
+            detected_sections = [s for s in sections if s not in ['other', 'content']]
+            if detected_sections:
+                for section in detected_sections:
+                    st.markdown(f"- {section.replace('_', ' ').title()}")
+            else:
+                st.info("No standard sections detected.")
+
             # Skills extracted
             st.markdown("**Extracted Skills:**")
             if st.session_state.skills_extracted:
-                skills_text = ", ".join(st.session_state.skills_extracted[:10])
-                if len(st.session_state.skills_extracted) > 10:
-                    skills_text += f" (+{len(st.session_state.skills_extracted) - 10} more)"
+                skills_text = ", ".join(st.session_state.skills_extracted[:15]) # Show more skills
+                if len(st.session_state.skills_extracted) > 15:
+                    skills_text += f" (+{len(st.session_state.skills_extracted) - 15} more)"
                 st.markdown(skills_text)
             else:
-                st.markdown("No skills detected. Consider adding more specific skills to your resume.")
-    
+                st.markdown("No specific skills detected. Consider adding a 'Skills' section.")
+        elif uploaded_file:
+             st.info("Upload your resume to see analysis stats.")
+
+
     # Job matching section
-    if uploaded_file:
+    # Only show matching options if resume processing was successful
+    if st.session_state.resume_text and st.session_state.resume_structure_analysis is not None:
         st.markdown('<div class="sub-header">🔎 Find Matching Jobs</div>', unsafe_allow_html=True)
-        
+
         col1, col2 = st.columns([3, 1])
-        
+
         with col1:
             # Job sector filter
             selected_sectors = st.multiselect(
                 "Filter by job sector(s)",
                 options=list(sector_options.keys()),
-                placeholder="Choose one or more sectors..."
+                placeholder="Choose one or more sectors...",
+                key="sector_filter" # Added key
             )
-            
+
             # Convert sector selections to keywords
             selected_keywords = []
             if selected_sectors:
                 for sector in selected_sectors:
                     selected_keywords.extend(sector_options[sector])
-        
+
         with col2:
             # Number of results to show
-            top_n = st.slider("Number of results", min_value=5, max_value=30, value=10, step=5)
-            
+            top_n = st.slider("Number of results", min_value=5, max_value=50, value=10, step=5, key="top_n_slider") # Increased max, added key
+
             # Match button
-            find_jobs = st.button("🔍 Find Matching Jobs", type="primary", use_container_width=True)
-        
+            find_jobs = st.button("🔍 Find Matching Jobs", type="primary", use_container_width=True, key="find_jobs_button")
+
+
         if find_jobs:
             # Show progress and perform matching
             with st.spinner("Matching your profile to jobs..."):
                 # Filter by selected keywords if any
-                filtered_jobs = jobs_df
+                filtered_jobs = jobs_df.copy() # Work on a copy
                 if selected_keywords:
-                    pattern = '|'.join(selected_keywords)
-                    filtered_jobs = jobs_df[
-                        jobs_df["Job title"].str.lower().str.contains(pattern, na=False) |
-                        jobs_df["Job description"].str.lower().str.contains(pattern, na=False)
+                    # Create a case-insensitive regex pattern
+                    pattern = '|'.join([re.escape(kw) for kw in selected_keywords]) # Use re.escape for special chars
+                    filtered_jobs = filtered_jobs[
+                        filtered_jobs["Job title"].str.contains(pattern, na=False, case=False) |
+                        filtered_jobs["Job description"].str.contains(pattern, na=False, case=False) |
+                        filtered_jobs["Requirements"].str.contains(pattern, na=False, case=False)
                     ]
-                
+
                 # If no jobs match the filters, show a message
                 if filtered_jobs.empty:
-                    st.warning("No jobs found matching your selected sectors. Try selecting different sectors.")
+                    st.warning("No jobs found matching your selected sectors. Try selecting different sectors or removing filters.")
+                    st.session_state.job_results = pd.DataFrame() # Set to empty df
                 else:
                     # Match using semantic embeddings
                     start_time = time.time()
+                    # Ensure match_score is added by the semantic_match_resume function
                     results = semantic_match_resume(st.session_state.resume_text, filtered_jobs, top_n=top_n)
                     matching_time = time.time() - start_time
-                    
+
                     # Store results in session state
                     st.session_state.job_results = results
-                    
+
                     # Summary stats
                     st.success(f"Found {len(results)} matching jobs in {matching_time:.2f} seconds")
-                    
-                    # Create interactive visualizations of match scores
-                    fig = px.bar(
-                        results,
-                        x='Job title',
-                        y='match_score',
-                        color='match_score',
-                        color_continuous_scale='viridis',
-                        labels={'match_score': 'Match Score (%)'},
-                        title='Job Match Scores'
-                    )
-                    fig.update_layout(xaxis_tickangle=-45)
-                    st.plotly_chart(fig, use_container_width=True)
-        
-        # Display job results
-        if st.session_state.job_results is not None:
+
+                    if not results.empty:
+                        # Create interactive visualizations of match scores
+                        fig = px.bar(
+                            results,
+                            x='Job title',
+                            y='match_score',
+                            color='match_score',
+                            color_continuous_scale='viridis',
+                            labels={'match_score': 'Match Score (%)'},
+                            title='Top Job Match Scores'
+                        )
+                        fig.update_layout(xaxis_tickangle=-45, height=400, margin=dict(t=40, b=150)) # Adjust layout
+                        st.plotly_chart(fig, use_container_width=True)
+                    else:
+                         st.info("No jobs matched your resume based on the matching algorithm.")
+
+        # Display job results if available in session state
+        if st.session_state.job_results is not None and not st.session_state.job_results.empty:
             st.markdown('<div class="sub-header">✅ Top Matching Jobs</div>', unsafe_allow_html=True)
-            
+
             # Get resume skills for matching
-            resume_skills = st.session_state.skills_extracted
-            
+            # Use skills from session state analysis results for consistency
+            resume_skills_list = st.session_state.skills_extracted # This is already a list from session state
+
             # Create tabs for different views
             tab1, tab2 = st.tabs(["List View", "Detailed View"])
-            
+
             with tab1:
-                # Create a dataframe for display
-                display_df = st.session_state.job_results[['Job title', 'Company', 'Salary', 'match_score']].copy()
-                display_df['match_score'] = display_df['match_score'].round(1).astype(str) + '%'
-                st.dataframe(display_df, use_container_width=True)
-            
+                st.dataframe(
+                    st.session_state.job_results[['Job title', 'Company', 'Salary', 'match_score']].style.format({'match_score': '{:.1f}%'}),
+                    use_container_width=True
+                    )
+
             with tab2:
                 # Show detailed job cards
-                for i, (_, row) in enumerate(st.session_state.job_results.iterrows()):
-                    with st.container():
-                        job_text = str(row.get("Job description", "")) + " " + str(row.get("Requirements", ""))
-                        
-                        # Get matched and missing skills
-                        matched_skills, missing_skills = get_skill_matches(resume_skills, job_text)
-                        
-                        # Format match score with color
-                        match_score = row['match_score']
-                        if match_score >= 80:
-                            match_class = "match-score-high"
-                        elif match_score >= 60:
-                            match_class = "match-score-medium"
-                        else:
-                            match_class = "match-score-low"
-                        
-                        # Job card
-                        st.markdown(f'<div class="match-section">', unsafe_allow_html=True)
-                        st.markdown(f'<div class="job-title">{i+1}. {row["Job title"]}</div>', unsafe_allow_html=True)
-                        st.markdown(f"**Company:** {row.get('Company', 'Unknown')}")
-                        st.markdown(f"**Salary:** {row.get('Salary', 'Not specified')}")
-                        st.markdown(f'**Match Score:** <span class="{match_class}">{match_score:.1f}%</span>', unsafe_allow_html=True)
-                        
-                        # Job URL
-                        st.markdown(f"[🔗 View Job Posting]({row['URL']})")
-                        
-                        # Matched and Missing Skills
+                # Sort results by match score descending for detailed view
+                detailed_results = st.session_state.job_results.sort_values(by='match_score', ascending=False)
+
+                for i, (_, row) in enumerate(detailed_results.iterrows()):
+                    # Combine job description and requirements for skill matching
+                    job_text = str(row.get("Job description", "")) + " " + str(row.get("Requirements", ""))
+
+                    # Get matched and missing skills if resume skills are available
+                    matched_skills, missing_skills = [], []
+                    if resume_skills_list:
+                        matched_skills, missing_skills = get_skill_matches(resume_skills_list, job_text)
+
+                    # Format match score with color
+                    match_score = row['match_score']
+                    if match_score >= 80:
+                        match_class = "match-score-high"
+                    elif match_score >= 60:
+                        match_class = "match-score-medium"
+                    else:
+                        match_class = "match-score-low"
+
+                    # Job card
+                    st.markdown(f'<div class="match-section">', unsafe_allow_html=True)
+                    st.markdown(f'<div class="job-title">{i+1}. {row["Job title"]}</div>', unsafe_allow_html=True)
+                    st.markdown(f"**Company:** {row.get('Company', 'Unknown')}")
+                    st.markdown(f"**Salary:** {row.get('Salary', 'Not specified')}")
+                    st.markdown(f'**Match Score:** <span class="{match_class}">{match_score:.1f}%</span>', unsafe_allow_html=True)
+
+                    # Job URL - Check if URL is valid before displaying
+                    job_url = row.get('URL', '#')
+                    if job_url and job_url != '#' and job_url.startswith('http'): # Basic check
+                         st.markdown(f"[🔗 View Job Posting]({job_url})")
+                    elif job_url and job_url != '#':
+                         st.markdown(f"URL: {job_url}") # Display if it exists but isn't a standard http link
+                    else:
+                         st.markdown("URL: Not available")
+
+
+                    # Matched and Missing Skills
+                    if resume_skills_list: # Only show this section if skills were extracted from resume
                         if matched_skills:
-                            st.markdown('<div class="matched-keywords">🟢 <b>Matched skills:</b> ' + 
-                                      ', '.join(matched_skills[:8]) + 
-                                      (f' (+{len(matched_skills)-8} more)' if len(matched_skills) > 8 else '') + 
+                            st.markdown('<div class="matched-keywords">🟢 **Matched skills:** ' +
+                                      ', '.join(matched_skills[:10]) + # Show more skills
+                                      (f' (+{len(matched_skills)-10} more)' if len(matched_skills) > 10 else '') +
                                       '</div>', unsafe_allow_html=True)
-                        
+
                         if missing_skills:
-                            st.markdown('<div class="missing-keywords">🔴 <b>Missing skills:</b> ' + 
-                                      ', '.join(missing_skills[:8]) + 
-                                      (f' (+{len(missing_skills)-8} more)' if len(missing_skills) > 8 else '') + 
+                            st.markdown('<div class="missing-keywords">🔴 **Potentially missing skills:** ' + # Improved wording
+                                      ', '.join(missing_skills[:10]) + # Show more skills
+                                      (f' (+{len(missing_skills)-10} more)' if len(missing_skills) > 10 else '') +
                                       '</div>', unsafe_allow_html=True)
-                        
-                        # Expandable job description
-                        with st.expander("View Job Details"):
-                            st.markdown("#### Job Description")
-                            st.markdown(row.get("Job description", "No description available"))
-                            
-                            st.markdown("#### Requirements")
-                            st.markdown(row.get("Requirements", "No requirements specified"))
-                        
-                        st.markdown('</div>', unsafe_allow_html=True)
-                        st.markdown("---")
-            
+                        else:
+                             st.markdown('<div class="matched-keywords">✅ Your skills seem to cover requirements for this job!</div>', unsafe_allow_html=True)
+
+
+                    # Expandable job description
+                    with st.expander("View Job Details"):
+                        st.markdown("#### Job Description")
+                        st.markdown(row.get("Job description", "No description available"))
+
+                        st.markdown("#### Requirements")
+                        st.markdown(row.get("Requirements", "No requirements specified"))
+
+                    st.markdown('</div>', unsafe_allow_html=True)
+                    st.markdown("---")
+
             # Download results
-            if not st.session_state.job_results.empty:
-                output = io.BytesIO()
-                with pd.ExcelWriter(output, engine="openpyxl") as writer:
-                    st.session_state.job_results.to_excel(writer, index=False)
-                output.seek(0)
-                
-                st.download_button(
-                    label="⬇ Download results as Excel",
-                    data=output,
-                    file_name="matched_jobs.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                )
-                
-                # Resume improvement tips
-                st.markdown('<div class="sub-header">🚀 Improve Your Resume</div>', unsafe_allow_html=True)
-                st.markdown('<div class="tips-section">', unsafe_allow_html=True)
-                st.markdown("Based on your job matches, here are tips to improve your resume:")
-                
-                # Generate dynamic tips based on job results
-                all_missing_skills = []
+            output = io.BytesIO()
+            # Ensure 'match_score' column is included in the download
+            cols_to_download = ['Job title', 'Company', 'Salary', 'match_score', 'URL', 'Job description', 'Requirements']
+            # Filter results dataframe to only include these columns
+            download_df = st.session_state.job_results.copy()
+            # Ensure all columns exist in the download_df before selecting
+            download_cols_present = [col for col in cols_to_download if col in download_df.columns]
+            download_df = download_df[download_cols_present]
+
+
+            with pd.ExcelWriter(output, engine="openpyxl") as writer:
+                download_df.to_excel(writer, index=False)
+            output.seek(0)
+
+            st.download_button(
+                label="⬇ Download results as Excel",
+                data=output,
+                file_name="matched_jobs.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            )
+
+            # Resume improvement tips based on job matches
+            st.markdown('<div class="sub-header">🚀 Improve Your Resume for Better Matches</div>', unsafe_allow_html=True)
+            st.markdown('<div class="tips-section">', unsafe_allow_html=True)
+            st.markdown("Based on the skills found in the top matching jobs but potentially missing from your resume, here are areas to consider adding or highlighting:")
+
+            # Generate dynamic tips based on job results and missing skills
+            all_missing_skills = []
+            if resume_skills_list: # Only analyze missing skills if resume skills were extracted
                 for _, row in st.session_state.job_results.iterrows():
                     job_text = str(row.get("Job description", "")) + " " + str(row.get("Requirements", ""))
-                    _, missing = get_skill_matches(resume_skills, job_text)
+                    _, missing = get_skill_matches(resume_skills_list, job_text)
                     all_missing_skills.extend(missing)
-                
-                # Count most common missing skills
-                from collections import Counter
-                common_missing = Counter(all_missing_skills).most_common(5)
-                
-                if common_missing:
-                    st.markdown("#### Top Skills to Add:")
-                    for skill, count in common_missing:
-                        st.markdown(f"- **{skill}** (mentioned in {count} job{'s' if count > 1 else ''})")
-                
-                # General resume improvement tips
-                st.markdown("""
-                #### General Tips:
-                - Make sure your resume highlights your most relevant skills for the targeted positions
-                - Use specific keywords from job descriptions in your resume
-                - Quantify your achievements with numbers and metrics
-                - Use action verbs to describe your experience
-                - Tailor your resume for each application
-                """)
-                st.markdown('</div>', unsafe_allow_html=True)
 
+            # Count most common missing skills (limit to top 10-15)
+            common_missing = Counter(all_missing_skills).most_common(15) # Show more common skills
+
+            if common_missing:
+                st.markdown("#### Top Skills to Consider Adding or Highlighting:")
+                st.info("These skills appeared frequently in the job descriptions of your top matches but were not detected in your resume.")
+                cols = st.columns(3) # Use columns for listing skills
+                for i, (skill, count) in enumerate(common_missing):
+                     cols[i % 3].markdown(f"- **{skill}** (mentioned in {count} job{'s' if count > 1 else ''})")
+
+            else:
+                 st.info("Based on the top matches, no specific skills were consistently missing from your resume. Ensure your existing skills are clearly articulated.")
+
+
+            # General resume improvement tips (can link to Resume Analysis tab)
+            st.markdown("#### General Tips for Job Matching:")
+            st.markdown("""
+            - **Include a Skills Section:** A clear section listing your technical and soft skills helps matching algorithms.
+            - **Use Keywords:** Incorporate keywords found in job descriptions throughout your resume, especially in your experience bullet points.
+            - **Tailor for Each Job:** Adapt your resume slightly for each application, emphasizing the skills and experiences most relevant to that specific role.
+            - **Quantify:** Use numbers to describe your achievements in previous roles, making your impact clear.
+            """)
+            st.markdown('</div>', unsafe_allow_html=True)
+
+        elif st.session_state.job_results is not None and st.session_state.job_results.empty and find_jobs:
+             st.info("No jobs were found matching your criteria after filtering or during the matching process.")
+
+    elif uploaded_file and (st.session_state.resume_text == "" or st.session_state.resume_structure_analysis is None):
+        st.warning("Please upload a valid resume file (PDF or DOCX) to find matching jobs.")
+    elif not uploaded_file:
+         st.info("Upload your resume above to find matching jobs based on your profile.")
+
+
+# === Resume Analysis Mode (Enhanced) ===
 elif app_mode == "Resume Analysis":
 
     st.markdown('📊 Resume Analyzer', unsafe_allow_html=True)
     st.write("Upload your resume to get a detailed analysis of its content and effectiveness.")
 
+    # Initialize analysis results to None before the file upload
+    # These are local variables for this mode, not using session state here
+    resume_structure_analysis = None
+    skills_analysis = None
+    resume_text_analysis = "" # Local variable for text in this mode
+
     # Upload resume for analysis
-    uploaded_file = st.file_uploader("", type=["pdf", "docx"], key="analysis_uploader") # Added unique key
+    uploaded_file = st.file_uploader("", type=["pdf", "docx"], key="analysis_uploader_mode") # Added unique key
+
 
     if uploaded_file:
         # Process the resume
         with st.spinner("Analyzing your resume..."):
             if uploaded_file.name.endswith(".pdf"):
-                resume_text = extract_text_from_pdf(uploaded_file)
+                resume_text_analysis = extract_text_from_pdf(uploaded_file)
             elif uploaded_file.name.endswith(".docx"):
-                resume_text = extract_text_from_docx(uploaded_file)
+                resume_text_analysis = extract_text_from_docx(uploaded_file)
             else:
                 st.error("Unsupported file format.")
-                resume_text = ""
+                resume_text_analysis = ""
 
-            # Analyze resume
-            if resume_text:
-                resume_analysis = analyze_resume(resume_text) # General structural analysis
-                skills_analysis = analyze_resume_skills(resume_text) # Skills and keyword analysis
-            else:
-                 resume_analysis = None
-                 skills_analysis = None
+            # Analyze resume only if text was extracted
+            if resume_text_analysis:
+                resume_structure_analysis = analyze_resume_structure(resume_text_analysis) # General structural analysis
+                skills_analysis = analyze_resume_skills(resume_text_analysis) # Skills and keyword analysis
+            # If resume_text_analysis is empty, analysis results remain None as initialized
 
 
-    # Display analysis results
-    if resume_analysis is not None and skills_analysis is not None:
+    # Display analysis results only if analysis was successful
+    if resume_structure_analysis is not None and skills_analysis is not None:
         # Create tabs for different analysis views
-        tab1, tab2, tab3 = st.tabs(["Overview", "Content Details", "Improvement Suggestions"]) # Renamed Content Analysis & Improvement Tips
+        tab1, tab2, tab3 = st.tabs(["Overview", "Content Details", "Improvement Suggestions"]) # Renamed tabs
 
         with tab1:
             st.markdown("#### Summary Overview")
@@ -489,7 +658,7 @@ elif app_mode == "Resume Analysis":
             col1, col2, col3 = st.columns(3)
 
             # Completeness score
-            completeness = resume_analysis.get('completeness_score', 0)
+            completeness = resume_structure_analysis.get('completeness_score', 0)
             with col1:
                 st.metric("Completeness Score", f"{completeness}%")
                 st.progress(completeness/100)
@@ -500,7 +669,7 @@ elif app_mode == "Resume Analysis":
 
 
             # Section count
-            sections = resume_analysis.get('sections', {})
+            sections = resume_structure_analysis.get('sections', {})
             # Filter out 'other' and 'content' which are usually catch-alls
             detected_sections = [s for s in sections if s not in ['other', 'content']]
             section_count = len(detected_sections)
@@ -522,7 +691,7 @@ elif app_mode == "Resume Analysis":
 
             # Contact information
             st.markdown("#### Contact Information")
-            contact_info = resume_analysis.get('contact_info', {})
+            contact_info = resume_structure_analysis.get('contact_info', {})
 
             if contact_info.get('emails') or contact_info.get('phones') or contact_info.get('linkedin') or contact_info.get('locations'):
                 if contact_info.get('emails'):
@@ -543,7 +712,7 @@ elif app_mode == "Resume Analysis":
             # Skills display
             st.markdown("##### 🛠️ Detected Skills")
             if skills:
-                st.info("These are the specific skills identified in your resume. Highlight the most relevant ones for target jobs.")
+                st.info("These are the specific skills identified in your resume. Ensure they are relevant and clearly stated.")
                 # Use columns for a more organized tag-like display
                 cols = st.columns(5) # Use more columns
                 for i, skill in enumerate(skills):
@@ -564,9 +733,7 @@ elif app_mode == "Resume Analysis":
 
                 # Create and display word cloud
                 try:
-                    from wordcloud import WordCloud
-                    import matplotlib.pyplot as plt
-
+                    # Ensure WordCloud and matplotlib are imported at the top
                     wordcloud = WordCloud(width=800, height=400, background_color='white',
                                         colormap='viridis', max_words=50, min_font_size=10).generate(text_for_wordcloud)
 
@@ -575,9 +742,7 @@ elif app_mode == "Resume Analysis":
                     ax.axis('off')
                     st.pyplot(fig)
 
-                except ImportError:
-                    st.warning("`wordcloud` package not installed. Cannot display word cloud. Install it using `pip install wordcloud matplotlib`.")
-                except Exception as e:
+                except Exception as e: # Catch any exception during word cloud generation
                     st.error(f"Error generating word cloud: {e}")
 
             else:
@@ -589,10 +754,10 @@ elif app_mode == "Resume Analysis":
             st.markdown("##### 📄 Resume Sections Content")
             st.info("Review the extracted content for each section to ensure accuracy and completeness.")
             # Filter out 'other' and 'content' from sections display unless they have substantial text
-            display_sections = {k: v for k, v in sections.items() if k not in ['other', 'content'] or (k in ['other', 'content'] and len(v.strip()) > 50)}
+            sections_to_display = {k: v for k, v in sections.items() if k not in ['other', 'content'] or (k in ['other', 'content'] and len(v.strip()) > 50)}
 
-            if display_sections:
-                for section_name, content in display_sections.items():
+            if sections_to_display:
+                for section_name, content in sections_to_display.items():
                     # Use a slightly better title for expanders
                     section_display_name = section_name.replace('_', ' ').title()
                     with st.expander(f"{section_display_name} Section"):
@@ -618,10 +783,17 @@ elif app_mode == "Resume Analysis":
                 st.markdown(f"- Your resume completeness score is **{completeness}%**. Key sections might be missing or brief.")
                 st.markdown("- Ensure you have dedicated sections for: **Contact Information, Summary/Objective, Work Experience, Education, and Skills.**")
                 # Check for specific missing core sections
-                core_sections = ['contact_info', 'education', 'experience', 'skills']
-                missing_core = [s.replace('_info', '').title() for s in core_sections if s not in resume_analysis or (s != 'contact_info' and len(sections.get(s, '').strip()) < 50) or (s == 'contact_info' and not any(contact_info.values()))]
-                if missing_core:
-                     st.markdown(f"- Specifically, consider adding or expanding sections like: **{', '.join(missing_core)}**.")
+                core_sections_keys = ['contact_info', 'education', 'experience', 'skills']
+                missing_core_sections = []
+                for section_key in core_sections_keys:
+                     if section_key == 'contact_info':
+                          if not any(resume_structure_analysis.get('contact_info', {}).values()):
+                               missing_core_sections.append("Contact Information")
+                     elif section_key not in sections or len(sections.get(section_key, '').strip()) < 50: # Basic length check
+                          missing_core_sections.append(section_key.replace('_', ' ').title())
+
+                if missing_core_sections:
+                     st.markdown(f"- Specifically, consider adding or expanding sections like: **{', '.join(missing_core_sections)}**.")
 
 
             # Skills suggestions
@@ -633,7 +805,7 @@ elif app_mode == "Resume Analysis":
 
 
             # Content depth check (basic based on total text length)
-            if len(resume_text) < 1000 and completeness >= 50: # Avoid this tip if completeness is already very low
+            if len(resume_text_analysis) < 1000 and completeness >= 50: # Avoid this tip if completeness is already very low
                  st.markdown("###### 📝 Content Depth:")
                  st.markdown("- Your resume text is relatively brief. Expand on your accomplishments in your experience section.")
                  st.markdown("- Use detailed bullet points that describe **what you did**, **how you did it**, and **the positive result (quantify!)**.")
@@ -643,17 +815,19 @@ elif app_mode == "Resume Analysis":
             # --- General Best Practices & ATS Tips ---
 
             st.markdown("##### General Best Practices & ATS Tips:")
+            st.info("These tips help improve your resume's readability for both recruiters and automated systems (ATS).")
 
             st.markdown("""
             - **Quantify Achievements:** Whenever possible, use numbers, percentages, or data points to describe your impact (e.g., "Increased efficiency by 20%", "Managed a team of 5").
             - **Use Action Verbs:** Start bullet points with strong action verbs (e.g., *Led, Developed, Managed, Created, Implemented, Analyzed*).
             - **Tailor Your Resume:** Modify your resume slightly for each job application by incorporating keywords from the job description.
             - **ATS Formatting:**
-                - Use standard resume section titles (Education, Work Experience, Skills, Projects, etc.).
-                - Avoid fancy templates, tables, columns, headers/footers, or excessive graphics that confuse ATS software.
-                - Use standard fonts (Arial, Calibri, Times New Roman).
-                - Save as a `.docx` or `.pdf` (check application instructions).
-            - **Proofread:** Thoroughly check for typos, grammatical errors, and inconsistent formatting.
+                - Use standard resume section titles (Education, Work Experience, Skills, Projects, etc.). Avoid creative or unusual headings.
+                - Avoid complex designs: no tables, multi-column layouts (especially in the main body), headers/footers (ATS might ignore them), text boxes, or images.
+                - Stick to common, readable fonts (Arial, Calibri, Times New Roman, Verdana) and a font size between 10-12pt.
+                - Use reverse chronological order for experience and education.
+                - Save as a `.docx` or `.pdf` (check application instructions; PDF is generally safe if not image-based).
+            - **Proofread:** Thoroughly check for typos, grammatical errors, and inconsistent formatting. A single error can make a negative impression.
             """)
 
             st.markdown("---") # Separator
@@ -665,151 +839,162 @@ elif app_mode == "Resume Analysis":
             - Consider getting feedback from peers or career services.
             """)
 
-    elif uploaded_file and (resume_analysis is None or skills_analysis is None):
-        st.error("Could not process the resume file. Please check the format or try a different file.")
+    elif uploaded_file and resume_text_analysis == "":
+        st.error("Could not extract readable text from the uploaded file. Please ensure it's a searchable PDF or a standard DOCX.")
 
+    elif not uploaded_file:
+         st.info("Upload your resume above to get a detailed analysis.")
+
+
+# === Job Market Explorer Mode ===
 elif app_mode == "Job Market Explorer":
-    st.markdown('<div class="sub-header">🔍 Job Market Explorer</div>', unsafe_allow_html=True)
-    st.write("Explore the current job market trends and opportunities.")
-    
-    # Apply any filters from sidebar
-    filtered_jobs = jobs_df
-    
-    # Apply salary filter if set
+
+    st.markdown('🔍 Job Market Explorer', unsafe_allow_html=True)
+    st.write("Explore the current job market trends and opportunities based on the loaded data.")
+
+    # Start with the full dataset
+    filtered_jobs = jobs_df.copy()
+
+    # Apply company filter
+    if 'selected_companies' in locals() and selected_companies:
+        filtered_jobs = filtered_jobs[filtered_jobs['Company'].isin(selected_companies)]
+
+    # Apply salary filter
     if 'salary_min' in locals() and salary_min > 0:
-        # Extract numeric salary values where possible
-        def extract_salary(salary_str):
-            if pd.isna(salary_str) or salary_str == 'Not specified':
+        # Ensure 'salary_value' column is created for filtering
+        def extract_salary_value(salary_str):
+            if pd.isna(salary_str) or str(salary_str).strip().lower() == 'not specified':
                 return 0
-            # Extract numbers from the string
-            import re
-            numbers = re.findall(r'\d+', str(salary_str))
+            # Extract numbers, handling potential commas
+            numbers = re.findall(r'\d+', str(salary_str).replace(',', ''))
             if numbers:
-                # If multiple numbers, take the average
-                return sum(map(int, numbers)) / len(numbers)
+                # Take the first number found as the minimum value
+                return int(numbers[0])
             return 0
-        
-        # Create a numeric salary column for filtering
-        filtered_jobs['salary_value'] = filtered_jobs['Salary'].apply(extract_salary)
+
+        # Apply extraction and filter
+        filtered_jobs['salary_value'] = filtered_jobs['Salary'].apply(extract_salary_value)
         filtered_jobs = filtered_jobs[filtered_jobs['salary_value'] >= salary_min]
-    
+        filtered_jobs = filtered_jobs.drop(columns=['salary_value']) # Drop the helper column
+
+    # Apply sector filter
+    if 'selected_job_sectors' in locals() and selected_job_sectors:
+        # Convert selected sectors back to keywords
+        selected_explorer_keywords = []
+        for sector in selected_job_sectors:
+             selected_explorer_keywords.extend(sector_options[sector])
+
+        if selected_explorer_keywords:
+            # Create a case-insensitive regex pattern from selected keywords
+            pattern = '|'.join([re.escape(kw) for kw in selected_explorer_keywords])
+            filtered_jobs = filtered_jobs[
+                filtered_jobs["Job title"].str.contains(pattern, na=False, case=False) |
+                filtered_jobs["Job description"].str.contains(pattern, na=False, case=False) |
+                filtered_jobs["Requirements"].str.contains(pattern, na=False, case=False)
+            ]
+
+
     # Show statistics and visualizations
     if filtered_jobs.empty:
-        st.warning("No jobs found with the current filters. Try adjusting your filters.")
+        st.warning("No jobs found matching the current filters. Try adjusting your filters in the sidebar.")
     else:
+        st.markdown(f"**Displaying {len(filtered_jobs)} jobs matching your filters.**")
         col1, col2 = st.columns(2)
-        
+
         with col1:
             st.markdown("#### Job Count by Sector")
-            
-            # Classify jobs into sectors
-            def classify_job(job_title, job_desc):
-                title = str(job_title).lower()
-                desc = str(job_desc).lower()
-                text = title + " " + desc
-                
-                for sector, keywords in sector_options.items():
-                    for keyword in keywords:
-                        if keyword.lower() in text:
-                            return sector
+
+            # Classify jobs into sectors for visualization *of the filtered data*
+            @st.cache_data(ttl=300) # Cache classification for performance if filters change frequently
+            def classify_jobs_for_viz(df_subset, sector_keywords):
+                 df_subset['sector'] = df_subset.apply(
+                     lambda row: classify_job(row['Job title'], str(row.get('Job description', '')) + " " + str(row.get('Requirements', '')) , sector_keywords), # Combine desc/req
+                     axis=1
+                 )
+                 return df_subset['sector'].value_counts()
+
+            # Helper function for classification (can be outside if needed elsewhere)
+            def classify_job(job_title, job_text, sector_keywords):
+                text = (str(job_title) + " " + str(job_text)).lower()
+                for sector, keywords in sector_keywords.items():
+                    # Check if any keyword from the sector is in the text
+                    if any(keyword.lower() in text for keyword in keywords):
+                        return sector
                 return "Other"
-            
-            # Create sector classification
-            filtered_jobs['sector'] = filtered_jobs.apply(
-                lambda row: classify_job(row['Job title'], row.get('Job description', '')), 
-                axis=1
-            )
-            
-            # Count by sector
-            sector_counts = filtered_jobs['sector'].value_counts()
-            
+
+            sector_counts = classify_jobs_for_viz(filtered_jobs.copy(), sector_options)
+
+
             # Create pie chart
-            fig = px.pie(
-                names=sector_counts.index,
-                values=sector_counts.values,
-                title="Job Distribution by Sector",
-                hole=0.4,
-                color_discrete_sequence=px.colors.qualitative.Pastel
-            )
-            st.plotly_chart(fig, use_container_width=True)
-        
+            if not sector_counts.empty:
+                fig = px.pie(
+                    names=sector_counts.index,
+                    values=sector_counts.values,
+                    title="Job Distribution by Sector",
+                    hole=0.4,
+                    color_discrete_sequence=px.colors.qualitative.Pastel
+                )
+                fig.update_layout(margin=dict(t=40, b=0, l=0, r=0)) # Adjust margins
+                st.plotly_chart(fig, use_container_width=True)
+            else:
+                 st.info("Not enough data to show sector distribution.")
+
+
         with col2:
             st.markdown("#### Top Companies Hiring")
-            
-            # Count jobs by company
+
+            # Count jobs by company for the filtered data
             company_counts = filtered_jobs['Company'].value_counts().head(10)
-            
+
             # Create horizontal bar chart
-            fig = px.bar(
-                x=company_counts.values,
-                y=company_counts.index,
-                orientation='h',
-                title="Top 10 Companies with Open Positions",
-                labels={'x': 'Number of Jobs', 'y': 'Company'},
-                color=company_counts.values,
-                color_continuous_scale='Viridis'
-            )
-            st.plotly_chart(fig, use_container_width=True)
-        
+            if not company_counts.empty:
+                fig = px.bar(
+                    x=company_counts.values,
+                    y=company_counts.index,
+                    orientation='h',
+                    title="Top 10 Companies with Open Positions",
+                    labels={'x': 'Number of Jobs', 'y': 'Company'},
+                    color=company_counts.values,
+                    color_continuous_scale='Viridis'
+                )
+                fig.update_layout(yaxis={'categoryarray': company_counts.index.tolist()}, margin=dict(t=40, b=0, l=0, r=0)) # Ensure correct order and margins
+                st.plotly_chart(fig, use_container_width=True)
+            else:
+                 st.info("Not enough data to show top companies.")
+
+
         # Show job listing table
         st.markdown("#### Available Job Listings")
         st.dataframe(
-            filtered_jobs[['Job title', 'Company', 'Salary']],
-            use_container_width=True
+            filtered_jobs[['Job title', 'Company', 'Salary', 'URL']].style.format({'URL': lambda x: f'<a href="{x}" target="_blank">{x}</a>'}),
+            use_container_width=True,
+            unsafe_allow_html=True # Allow HTML in DataFrame for clickable links
         )
-        
-        # Word cloud of job requirements
-        st.markdown("#### Most In-Demand Skills")
-        
-        # Extract and count skills from job descriptions
+
+
+        # Word cloud of job requirements keywords
+        st.markdown("#### Most In-Demand Skills/Keywords")
+        st.info("This word cloud highlights recurring terms in the job descriptions and requirements of the filtered jobs, suggesting common skills or qualifications employers are seeking.")
+
+        # Extract and combine text from job descriptions and requirements
         all_job_text = " ".join(filtered_jobs['Job description'].fillna('') + " " + filtered_jobs['Requirements'].fillna(''))
-        
-        # Create word cloud
-        try:
-            from wordcloud import WordCloud
-            import matplotlib.pyplot as plt
-            
-            # Generate word cloud
-            wordcloud = WordCloud(width=800, height=400, background_color='white', 
-                                colormap='viridis', max_words=100).generate(all_job_text)
-            
-            # Display the word cloud
-            fig, ax = plt.subplots(figsize=(10, 5))
-            ax.imshow(wordcloud, interpolation='bilinear')
-            ax.axis('off')
-            st.pyplot(fig)
-        except ImportError:
-            st.warning("WordCloud package not installed. Install it to see skill word cloud visualization.")
-            
-elif app_mode == "Resume Enhancement":
-    st.markdown('<div class="sub-header">✨ Resume Enhancement</div>', unsafe_allow_html=True)
-    
-    st.markdown("### 📝 General Resume Improvement Suggestions")
-    st.markdown("""
-- Use **strong action verbs** to start bullet points (e.g., *Managed*, *Developed*, *Led*, *Implemented*).
-- **Quantify** achievements with numbers and metrics where possible (e.g., *Increased sales by 15%*).
-- Tailor your resume using **keywords from the job description**.
-- **Proofread** your resume to remove typos (tools like Grammarly can help).
-- Keep formatting **clean and consistent** (fonts, spacing, layout).
-- Keep it **concise**: 1 page if <10 years experience, max 2 pages otherwise.
-- Consider a **professional summary or objective** at the top.
-""")
 
-    st.markdown("### 🤖 Applicant Tracking System (ATS) Optimization Tips")
-    st.markdown("""
-- Use **standard section headings** (Education, Experience, Skills, Projects).
-- Include **keywords** from the job post in your skills and experience.
-- Avoid complex layouts: no tables, headers, footers, or graphics.
-- Stick to **common fonts**: Arial, Calibri, Times New Roman, Verdana (10–12pt).
-- Use **reverse chronological order** for experience and education.
-- Save as **PDF or DOCX** (check the application instructions).
-""")
+        if all_job_text.strip():
+            # Create word cloud
+            try:
+                # Ensure WordCloud and matplotlib are imported at the top
+                wordcloud = WordCloud(width=800, height=400, background_color='white',
+                                    colormap='plasma', max_words=100, min_font_size=10,
+                                    stopwords=None, # You might want to add custom stopwords
+                                    collocations=False).generate(all_job_text) # Set collocations=False to avoid combining common pairs
 
+                # Display the word cloud
+                fig, ax = plt.subplots(figsize=(10, 5))
+                ax.imshow(wordcloud, interpolation='bilinear')
+                ax.axis('off')
+                st.pyplot(fig)
 
-# Footer
-st.markdown("---")
-st.markdown("""
-<div style="text-align: center">
-    <p>Smart Job Matcher | Designed to help you find your perfect career match</p>
-</div>
-""", unsafe_allow_html=True)
+            except Exception as e: # Catch any exception during word cloud generation
+                 st.error(f"Error generating word cloud: {e}")
+        else:
+            st.info("No sufficient job description/requirements text available to generate a word cloud.")
