@@ -1112,11 +1112,17 @@ elif app_mode == "Job Market Explorer":
             st.write(filtered_jobs_display['URL'].apply(type).value_counts()) # Display data types
             # --- End Debugging Snippet ---
 
-            st.dataframe(
-                filtered_jobs_display, # Use the modified DataFrame
-                use_container_width=True,
-                unsafe_allow_html=True # Allow HTML in DataFrame for clickable links
-            )
+           
+            st.markdown("### Available Job Listings")
+            for _, row in filtered_jobs_display.iterrows():
+                title = row['Job title']
+                company = row['Company']
+                salary = row['Salary']
+                url = row['URL']
+                if url and isinstance(url, str) and url.startswith("http"):
+                    st.markdown(f"- **{title}** at **{company}** – 💰 {salary} – [View Job Posting]({url})")
+                else:
+                    st.markdown(f"- **{title}** at **{company}** – 💰 {salary} – No link available")
 
 
             # Word cloud of job requirements keywords
