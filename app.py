@@ -164,7 +164,7 @@ with st.sidebar:
 
 # === Resume Creator Mode ===
 if app_mode == "Resume Creator":
-    st.markdown('<div class="sub-header">\ud83d\udcc4 Resume Creator</div>', unsafe_allow_html=True)
+    st.markdown('📄 Resume Creator', unsafe_allow_html=True)
     st.info("Fill in the fields below to generate your resume")
 
     name = st.text_input("Full Name")
