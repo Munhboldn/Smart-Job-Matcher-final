@@ -1094,23 +1094,27 @@ elif app_mode == "Job Market Explorer":
 
             # Show job listing table
             st.markdown("#### Available Job Listings")
-            MAX_DISPLAY = 10  # Limit how many jobs are shown
-            shown_jobs = filtered_jobs[['Job title', 'Company', 'Salary', 'URL']].head(MAX_DISPLAY)
-            
-            with st.expander(f"📄 Click to View Top {MAX_DISPLAY} Job Listings"):
-                for _, row in shown_jobs.iterrows():
-                    title = row.get('Job title', 'Unknown Job')
-                    company = row.get('Company', 'Unknown Company')
-                    salary = row.get('Salary', 'Not specified')
-                    url = row.get('URL', '')
 
-                    if url and isinstance(url, str) and url.startswith("http"):
-                        st.markdown(f"- **{title}** at **{company}** – 💰 {salary} – [🔗 View Job Posting]({url})")
-                    else:
-                        st.markdown(f"- **{title}** at **{company}** – 💰 {salary} – No link available")
+            # Show all jobs in a scrollable container
+            shown_jobs = filtered_jobs[['Job title', 'Company', 'Salary', 'URL']]
 
-            if len(filtered_jobs) > MAX_DISPLAY:
-                st.info(f"Only showing the first {MAX_DISPLAY} jobs. Refine filters to see more.")
+            job_list_html = "<div style='max-height: 500px; overflow-y: auto; padding: 10px; border: 1px solid #ccc; border-radius: 8px;'>"
+
+            for _, row in shown_jobs.iterrows():
+                title = row.get('Job title', 'Unknown Job')
+                company = row.get('Company', 'Unknown Company')
+                salary = row.get('Salary', 'Not specified')
+                url = row.get('URL', '')
+
+                if isinstance(url, str) and url.startswith("http"):
+                    job_list_html += f"<p><strong>{title}</strong> at <strong>{company}</strong> – 💰 {salary} – <a href='{url}' target='_blank'>🔗 View</a></p>"
+                else:
+                    job_list_html += f"<p><strong>{title}</strong> at <strong>{company}</strong> – 💰 {salary} – No link available</p>"
+
+            job_list_html += "</div>"
+
+            st.markdown(job_list_html, unsafe_allow_html=True)
+
 
 
             # Word cloud of job requirements keywords
