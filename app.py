@@ -169,7 +169,7 @@ if app_mode == "Resume-to-Job Matching":
                 color_continuous_scale='viridis'
             ), use_container_width=True)
 
-            tab1, tab2 = st.tabs(["List View", "Detailed View"])
+            tab1, tab2, tab3 = st.tabs(["List View", "Detailed View", "Resume Tips"])
             with tab1:
                 df_display = results[['Job title', 'Company', 'Salary', 'match_score']].copy()
                 df_display['match_score'] = df_display['match_score'].round(1).astype(str) + '%'
@@ -195,35 +195,54 @@ if app_mode == "Resume-to-Job Matching":
                     with st.expander("View Job Details"):
                         st.markdown(highlighted_desc, unsafe_allow_html=True)
 
-            st.download_button(
-            "⬇ Download results as CSV",
-            data=open("output/matched_jobs.csv", "rb"),
-            file_name="matched_jobs.csv",
-            mime="text/csv"
-        )
+            st.download_button()
 
-        # Resume Improvement Tips
-        st.markdown("### 💡 Tips to Improve Your Resume")
-        all_missing_skills = []
-        for _, row in results.iterrows():
-            job_text = str(row.get("Job description", "")) + " " + str(row.get("Requirements", ""))
-            _, missing = get_skill_matches(st.session_state.skills_extracted, job_text)
-            all_missing_skills.extend(missing)
+with tab3:
+    st.markdown("### 💡 Tips to Improve Your Resume")
 
-        from collections import Counter
-        common_missing = Counter(all_missing_skills).most_common(5)
+    # Missing Skills Suggestions
+    all_missing_skills = []
+    for _, row in results.iterrows():
+        job_text = str(row.get("Job description", "")) + " " + str(row.get("Requirements", ""))
+        _, missing = get_skill_matches(st.session_state.skills_extracted, job_text)
+        all_missing_skills.extend(missing)
 
-        if common_missing:
-            st.markdown("**Top Skills to Add:**")
-            for skill, count in common_missing:
-                st.markdown(f"- **{skill}** (mentioned in {count} job{'s' if count > 1 else ''})")
+    from collections import Counter
+    common_missing = Counter(all_missing_skills).most_common(5)
 
-        st.markdown("""
-        - Tailor your resume for each application
-        - Include both technical and soft skills
-        - Use keywords from job listings
-        - Quantify your achievements with metrics
-        - Ensure consistent formatting
+    if common_missing:
+        st.markdown("**Top Skills to Add:**")
+        for skill, count in common_missing:
+            st.markdown(f"- **{skill}** (mentioned in {count} job{'s' if count > 1 else ''})")
+
+    st.markdown("### 📝 General Resume Improvement Suggestions")
+    st.markdown("""
+    - Use strong action verbs to start bullet points in your experience section (e.g., **Managed**, **Developed**, **Led**, **Implemented**).
+    - Quantify your achievements with numbers and metrics whenever possible (e.g., "Increased sales by 15%", "Managed a team of 5", "Reduced costs by $10k").
+    - Tailor your resume, especially the summary/objective and skills sections, to align with the specific keywords and requirements of the jobs you are targeting.
+    - Proofread your resume meticulously for typos and grammatical errors. Consider using a tool like Grammarly.
+    - Ensure consistent formatting, fonts (use standard, professional fonts like Arial, Calibri, Times New Roman, Georgia, Verdana), and spacing throughout the document for readability.
+    - Keep your resume concise and focused. Typically 1 page for less than 10 years of experience, and a maximum of 2 pages for more extensive experience.
+    - Consider adding a professional summary or objective statement at the top, tailored to the type of job you seek.
+    """)
+
+    st.markdown("### 🤖 Applicant Tracking System (ATS) Optimization Tips")
+    st.markdown("""
+    - **Use Standard Section Headings**: Use clear, common titles like "Education", "Experience", "Skills", "Projects", etc.
+    - **Include Keywords**: Mirror the language and keywords used in the job description throughout your resume, especially in skills and experience sections.
+    - **Simple Formatting**: Avoid complex layouts, tables, text boxes, headers/footers (some systems struggle with these), and heavy graphics. Use bullet points effectively.
+    - **Standard Fonts**: Stick to widely recognized fonts (Arial, Calibri, Times New Roman, Georgia, Verdana) and a font size between 10-12pt.
+    - **Reverse Chronological Order**: List your experience and education with the most recent items first.
+    - **File Type**: Save your resume as a PDF or DOCX. PDF is often preferred for maintaining formatting, but check the application instructions.
+    """)")
+st.markdown("""
+- **Use Standard Section Headings**: Use clear, common titles like "Education", "Experience", "Skills", "Projects", etc.
+- **Include Keywords**: Mirror the language and keywords used in the job description throughout your resume, especially in skills and experience sections.
+- **Simple Formatting**: Avoid complex layouts, tables, text boxes, headers/footers (some systems struggle with these), and heavy graphics. Use bullet points effectively.
+- **Standard Fonts**: Stick to widely recognized fonts (Arial, Calibri, Times New Roman, Georgia, Verdana) and a font size between 10-12pt.
+- **Reverse Chronological Order**: List your experience and education with the most recent items first.
+- **File Type**: Save your resume as a PDF or DOCX. PDF is often preferred for maintaining formatting, but check the application instructions.
+""")
         """)
                 mime="text/csv"
             )
