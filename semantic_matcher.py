@@ -243,6 +243,8 @@ def get_skill_matches(resume_skills, job_text):
     job_terms = set(job_skills + job_keywords)
 
     # Find matched skills (skills from resume present in job terms)
+    # Ensure comparison is case-insensitive
+    resume_skills_lower = [s.lower() for s in resume_skills]
     matched_skills = [skill for skill in resume_skills if skill.lower() in job_terms]
 
     # Find potentially missing skills (skills/keywords from job terms not in resume skills)
@@ -256,7 +258,8 @@ def get_skill_matches(resume_skills, job_text):
 
     all_job_relevant_terms = set(job_skills + job_entities)
 
-    missing_skills = [term for term in all_job_relevant_terms if term not in [s.lower() for s in resume_skills]] # Compare lowercase
+    # Compare lowercase job terms against lowercase resume skills
+    missing_skills = [term for term in all_job_relevant_terms if term not in resume_skills_lower]
 
 
     # Optional: Refine missing skills to be more relevant (e.g., filter out very common words)
