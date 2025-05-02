@@ -113,10 +113,10 @@ def extract_resume_sections(text):
     Improved logic to collect content until the next header.
     """
     # More robust patterns including common variations and allowing for case-insensitivity
-    section_patterns = {
-        'contact': r'^\s*(contact|personal|info|information|profile|details)\s*$',
-        'summary': r'^\s*(summary|objective|about)\s*$', # Added Summary/Objective
-        'education': r'^\s*(education|academic|qualification|degree|university|school)\s*$',
-        'experience': r'^\s*(experience|employment|work|history|professional|career)\s*$',
-        'skills': r'^\s*(skills|abilities|expertise|competencies|technical skills)\s*$',
-
+section_patterns = {
+    'contact': r'^\s*(contact|personal|info|information|profile|details)\s*$',
+    'summary': r'^\s*(summary|objective|about)\s*$',
+    'education': r'^\s*(education|academic|qualification|degree|university|school)\s*$',
+    'experience': r'^\s*(experience|employment|work|history|professional|career)\s*$',
+    'skills': r'^\s*(skills|abilities|expertise|competencies|technical skills)\s*$'
+}
