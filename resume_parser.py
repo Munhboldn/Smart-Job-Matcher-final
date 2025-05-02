@@ -1,32 +1,20 @@
-import pandas as pd
-import numpy as np
-from sentence_transformers import SentenceTransformer
-from sklearn.metrics.pairwise import cosine_similarity
-import nltk
-from nltk.corpus import stopwords
-from nltk.tokenize import RegexpTokenizer
+import fitz # PyMuPDF
+import docx2txt
+import tempfile
 import re
+import os
+from docx import Document
+import pandas as pd
 import spacy
-from collections import Counter
-import os # Import os for model path
-
-# Download necessary NLTK data
-try:
-    nltk.data.find('tokenizers/punkt')
-    nltk.data.find('corpora/stopwords')
-except LookupError:
-    print("NLTK data not found. Downloading punkt and stopwords...")
-    nltk.download('punkt')
-    nltk.download('stopwords')
-    print("NLTK data download complete.")
-
+from collections import defaultdict
 
 # Load spaCy model for NER
-# Check if model is already downloaded or try downloading
 try:
     nlp = spacy.load('en_core_web_sm')
 except:
-    print("spaCy model 'en_core_web_sm' not found. Attempting download...")
+    # Fallback for environments where direct download might be restricted
+    # In a Streamlit environment, ensure this package is in your requirements.txt
+    # or pre-installed. This subprocess call might not work everywhere.
     try:
         import subprocess
         # Use --user to install in user site-packages if necessary
@@ -35,240 +23,274 @@ except:
         print("spaCy model downloaded and loaded successfully.")
     except Exception as e:
         print(f"Error loading or downloading spaCy model: {e}")
-        print("Proceeding without spaCy NER features for skill/keyword extraction.")
+        print("Proceeding without spaCy NER features.")
         nlp = None # Set nlp to None if loading fails
 
-
-# Initialize sentence transformer model
-# Check for local model first before downloading
-model_name = 'paraphrase-multilingual-MiniLM-L12-v2'
-model = None
-try:
-    # Attempt to load from default cache location
-    model = SentenceTransformer(model_name)
-    print(f"SentenceTransformer model '{model_name}' loaded successfully.")
-except Exception as e:
-    print(f"Error loading SentenceTransformer model '{model_name}': {e}")
-    print(f"Attempting to download model '{model_name}'...")
+def extract_text_from_pdf(pdf_file):
+    """Extract text from PDF with improved formatting preservation."""
+    text = ""
     try:
-        model = SentenceTransformer(model_name)
-        print(f"SentenceTransformer model '{model_name}' downloaded and loaded successfully.")
-    except Exception as e_download:
-        print(f"Failed to download SentenceTransformer model '{model_name}': {e_download}")
-        print("Semantic matching will not be available.")
-        model = None # Set model to None if download fails
+        # Move file pointer to the beginning in case it was read before
+        pdf_file.seek(0)
+        with fitz.open(stream=pdf_file.read(), filetype="pdf") as doc:
+            for page in doc:
+                # Use 'text' with 'textenabled=True' for potentially better block order
+                # Or stick to 'blocks' but process them carefully
+                # Let's refine the 'blocks' processing slightly
+                blocks = page.get_text("blocks")
+                # Sort blocks by their top-left corner (y then x) to handle columns
+                blocks.sort(key=lambda block: (block[1], block[0]))
+                for block in blocks:
+                     block_text = block[4].strip()
+                     if block_text:
+                          text += block_text + "\n\n" # Add extra newline between blocks
+    except Exception as e:
+        # Log the error or handle it appropriately
+        print(f"Error extracting PDF: {str(e)}")
+        return f"Error extracting PDF: {str(e)}" # Return error message to caller
+    return clean_resume_text(text)
 
-
-def preprocess_text(text):
-    """Basic text cleaning for keyword/skill extraction."""
-    if not isinstance(text, str):
-        return ""
-    text = text.lower()
-    # Remove special characters but keep spaces and hyphens for phrases
-    text = re.sub(r'[^a-z0-9\s-]', '', text)
-    # Replace multiple spaces with single space
-    text = re.sub(r'\s+', ' ', text).strip()
-    return text
-
-def extract_resume_keywords(text, top_n=50): # Increased top_n
-    """Extracts keywords from resume text."""
-    processed_text = preprocess_text(text)
-    if not processed_text:
-        return []
-
-    stop_words = set(stopwords.words('english'))
-    # Added more common Mongolian stop words
-    mongolian_stopwords = {"ба", "болон", "мөн", "юм", "бол", "нь", "л", "тэр", "энэ", "би", "та", "тэд",
-                           "гэх", "нь", "үед", "байгаа", "гэж", "дээр", "дотор", "тухай", "харин", "гэсэн"}
-    stop_words.update(mongolian_stopwords)
-
-    tokenizer = RegexpTokenizer(r'\w+') # Tokenize into words
-    tokens = tokenizer.tokenize(processed_text)
-
-    # Filter tokens
-    tokens = [word for word in tokens if word not in stop_words and len(word) > 2] # Filter short words and stop words
-
-    keywords = tokens # Start with individual words
-
-    # Add multi-word phrases from N-grams (optional, can add noise)
-    # from nltk.util import ngrams
-    # bigrams = [' '.join(grams) for grams in ngrams(tokens, 2) if ' '.join(grams) not in stop_words]
-    # trigrams = [' '.join(grams) for grams in ngrams(tokens, 3) if ' '.join(grams) not in stop_words]
-    # keywords.extend(bigrams + trigrams)
-
-
-    # Add entities from spaCy if available
-    if nlp:
-        doc = nlp(processed_text)
-        # Consider more relevant entity types like ORG, PRODUCT, GPE, NORP, FAC, LOC
-        # Filter out common short entities that might not be keywords
-        entities = [ent.text.lower() for ent in doc.ents if ent.label_ in ["ORG", "PRODUCT", "GPE", "NORP", "FAC", "LOC", "PERSON"] and len(ent.text.split()) > 1 and len(ent.text) > 3] # Filter short entities and single words
-
-        # Also consider noun chunks as potential keywords
-        noun_chunks = [chunk.text.lower() for chunk in doc.noun_chunks if len(chunk.text.split()) > 1 and chunk.text.lower() not in stop_words]
-        keywords.extend(entities + noun_chunks)
-
-
-    # Count frequency and get top N
-    word_freq = Counter(keywords)
-    # Filter out keywords that are just numbers
-    top_keywords = [word for word, _ in word_freq.most_common(top_n) if not word.isdigit()]
-
-    return top_keywords
-
-
-def extract_skills_from_resume(text):
-    """Extracts predefined and potentially entity-based skills from text."""
-    processed_text = preprocess_text(text)
-    if not processed_text:
-        return []
-
-    # Expanded and refined skill lists
-    tech_skills = [
-        "python", "java", "c++", "javascript", "html", "css", "sql", "nosql",
-        "mongodb", "react", "angular", "vue", "node", "express", "django",
-        "flask", "tensorflow", "pytorch", "keras", "scikit-learn", "numpy", "pandas",
-        "ai", "ml", "machine learning", "data science", "data analysis", "big data",
-        "docker", "kubernetes", "aws", "azure", "gcp", "git", "devops", "cloud computing",
-        "linux", "unix", "windows server", "networking", "cybersecurity", "database management",
-        "web development", "mobile development", "api development", "software engineering",
-        "quality assurance", "ui/ux design", "graphic design", "photoshop", "illustrator", "figma",
-        "excel", "word", "powerpoint", "microsoft office", "google workspace"
-    ]
-    soft_skills = [
-        "communication", "teamwork", "collaboration", "leadership", "problem solving",
-        "critical thinking", "time management", "organization", "creativity", "adaptability",
-        "flexibility", "project management", "analytical skills", "detail oriented",
-        "customer service", "client management", "negotiation", "presentation skills",
-        "interpersonal skills", "mentoring", "training", "coaching"
-    ]
-    mongolian_skills = [
-        "монгол хэл", "орос хэл", "англи хэл", "хятад хэл", "солонгос хэл", "япон хэл",
-        "удирдлага", "менежмент", "санхүү", "нягтлан бодох", "борлуулалт", "маркетинг",
-        "хүний нөөц", "хууль", "логистик", "хангамж", "үйлчилгээ", "багшлах", "сургалт"
-    ]
-
-    all_skills = set(tech_skills + soft_skills + mongolian_skills) # Use a set for faster lookup
-
-    found_skills = []
-    # Check for presence of predefined skills
-    for skill in all_skills:
-        if skill in processed_text:
-            found_skills.append(skill)
-
-    # Add entities from spaCy if available, focusing on relevant types that might be skills/technologies
-    if nlp:
-        doc = nlp(processed_text)
-        entity_skills = [ent.text.lower() for ent in doc.ents if ent.label_ in ["ORG", "PRODUCT", "LANGUAGE", "TECH"] and len(ent.text) > 2] # Added "TECH" if your model supports it, filter short ones
-        found_skills.extend(entity_skills)
-
-    # Use a set to get unique skills and convert back to list
-    return list(set(found_skills))
-
-
-def semantic_match_resume(resume_text, jobs_df, top_n=10):
-    """
-    Performs semantic similarity matching between a resume and job descriptions.
-    Requires the SentenceTransformer model to be loaded.
-    """
-    if model is None:
-        print("SentenceTransformer model not loaded. Cannot perform semantic matching.")
-        return pd.DataFrame() # Return empty DataFrame if model is not available
-
-    # Ensure necessary columns exist
-    required_cols = ["Job title", "Job description", "Requirements", "Company", "Salary", "URL"]
-    for col in required_cols:
-        if col not in jobs_df.columns:
-            print(f"Warning: Missing required column '{col}' in jobs DataFrame.")
-            jobs_df[col] = "" # Add missing column with empty strings
-
-    # Combine relevant job text for embedding
-    # Handle potential non-string types before combining
-    jobs_df["combined_text"] = (
-        jobs_df["Job title"].astype(str).fillna('') + " " +
-        jobs_df["Job description"].astype(str).fillna('') + " " +
-        jobs_df["Requirements"].astype(str).fillna('')
-    ).apply(preprocess_text) # Apply preprocessing
-
-    # Ensure resume_text is a string and preprocess
-    resume_text_processed = preprocess_text(resume_text)
-    if not resume_text_processed:
-         print("Warning: Resume text is empty after preprocessing. Cannot perform matching.")
-         return pd.DataFrame()
-
+def extract_text_from_docx(docx_file):
+    """Extract text from DOCX with improved structure preservation."""
     try:
-        # Encode the resume and job texts
-        resume_embedding = model.encode([resume_text_processed])[0]
-        # Filter out empty job texts before encoding
-        valid_job_texts = jobs_df[jobs_df["combined_text"].str.len() > 0]["combined_text"].tolist()
-        valid_job_indices = jobs_df[jobs_df["combined_text"].str.len() > 0].index
+        # Move file pointer to the beginning
+        docx_file.seek(0)
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".docx") as tmp:
+            tmp.write(docx_file.read())
+            tmp_path = tmp.name
 
-        if not valid_job_texts:
-             print("No valid job texts found for encoding.")
-             return pd.DataFrame()
+        doc = Document(tmp_path)
+        full_text = []
 
-        job_embeddings = model.encode(valid_job_texts)
+        # Extract header text
+        for section in doc.sections:
+             for header in section.header.paragraphs:
+                  if header.text.strip():
+                       full_text.append(header.text.strip())
 
-        # Calculate cosine similarity
-        similarity_scores = cosine_similarity([resume_embedding], job_embeddings)[0]
+        # Extract main body paragraphs
+        for para in doc.paragraphs:
+            if para.text.strip():
+                full_text.append(para.text.strip())
 
-        # Create a result DataFrame and map scores back to original jobs_df indices
-        result_df = jobs_df.loc[valid_job_indices].copy()
-        result_df["match_score"] = similarity_scores * 100
+        # Extract table text
+        for table in doc.tables:
+            for row in table.rows:
+                row_text = []
+                for cell in row.cells:
+                    if cell.text.strip():
+                        row_text.append(cell.text.strip())
+                if row_text:
+                    full_text.append(" | ".join(row_text)) # Join cell text with a separator
 
-        # Sort and return top N results
-        return result_df.sort_values(by="match_score", ascending=False).head(top_n)
+        os.unlink(tmp_path) # Clean up the temporary file
+        return clean_resume_text("\n\n".join(full_text)) # Join parts with double newline
 
     except Exception as e:
-        print(f"Error during semantic matching: {e}")
-        return pd.DataFrame() # Return empty DataFrame on error
+        # Log the error or handle it appropriately
+        print(f"Error extracting DOCX: {str(e)}")
+        return f"Error extracting DOCX: {str(e)}" # Return error message to caller
 
 
-def get_skill_matches(resume_skills, job_text):
+def clean_resume_text(text):
+    """Basic text cleaning for resume content."""
+    # Remove excessive whitespace, keeping some structure
+    text = re.sub(r'[ \t]+', ' ', text) # Replace multiple spaces/tabs with a single space
+    text = re.sub(r'\n\s*\n', '\n\n', text) # Replace multiple newlines with double newline
+    text = text.replace('•', '\n• ') # Ensure bullet points are on new lines
+    # Add a space between a lowercase letter and a following uppercase letter (e.g., "skillSet" -> "skill Set")
+    # This can sometimes help split concatenated words, but be cautious as it might split valid words (e.g., "iPhone")
+    # Let's make this optional or more targeted if needed. For now, keep it as it was.
+    # text = re.sub(r'([a-z])([A-Z])', r'\1 \2', text) # Keep this as per original code
+    text = re.sub(r'\n{3,}', '\n\n', text) # Reduce excessive newlines
+
+    return text.strip()
+
+
+def extract_resume_sections(text):
     """
-    Compares skills extracted from a resume against skills/keywords in a job description.
+    Extracts content into standard resume sections based on common headers.
+    Improved logic to collect content until the next header.
     """
-    if not resume_skills:
-        return [], [] # Return empty lists if no resume skills are provided
+    # More robust patterns including common variations and allowing for case-insensitivity
+    section_patterns = {
+        'contact': r'^\s*(contact|personal|info|information|profile|details)\s*$',
+        'summary': r'^\s*(summary|objective|about)\s*$', # Added Summary/Objective
+        'education': r'^\s*(education|academic|qualification|degree|university|school)\s*$',
+        'experience': r'^\s*(experience|employment|work|history|professional|career)\s*$',
+        'skills': r'^\s*(skills|abilities|expertise|competencies|proficiencies|technical skills|soft skills)\s*$',
+        'projects': r'^\s*(projects|portfolio|works)\s*$',
+        'achievements': r'^\s*(achievements|accomplishments|honors|awards)\s*$',
+        'languages': r'^\s*(languages|linguistic)\s*$',
+        'references': r'^\s*(references|recommendations)' # Removed $ anchor to allow trailing text on the header line
+    }
 
-    job_text_processed = preprocess_text(job_text)
-    if not job_text_processed:
-         return [], []
+    sections = defaultdict(str)
+    lines = text.split('\n')
+    current_section = 'other' # Default section for content before the first recognized header
+    section_found = False # Flag to track if any standard section header was found
 
-    # Extract skills and keywords from the job text
-    job_skills = extract_skills_from_resume(job_text_processed)
-    job_keywords = extract_resume_keywords(job_text_processed, top_n=100) # Get more keywords from job
+    # First pass: Identify section start lines and map them
+    section_starts = {}
+    for i, line in enumerate(lines):
+        line_lower = line.lower().strip()
+        # Check if the line matches any section pattern and is reasonably short
+        for section_name, pattern in section_patterns.items():
+            # Use re.search instead of re.match to find pattern anywhere on the line
+            # Keep word count check to avoid matching long sentences
+            if re.search(pattern, line_lower, re.IGNORECASE) and len(line_lower.split()) < 5:
+                section_starts[i] = section_name # Map line index to section name
+                section_found = True
+                break # Move to the next line once a header is matched
 
-    # Combine job skills and keywords for comparison
-    job_terms = set(job_skills + job_keywords)
+    # Get sorted list of line indices where sections start
+    sorted_start_lines = sorted(section_starts.keys())
 
-    # Find matched skills (skills from resume present in job terms)
-    # Ensure comparison is case-insensitive
-    resume_skills_lower = [s.lower() for s in resume_skills]
-    matched_skills = [skill for skill in resume_skills if skill.lower() in job_terms]
+    # Second pass: Iterate through lines and assign content to sections
+    current_section = 'other'
+    section_start_index = 0 # Index for iterating through sorted_start_lines
 
-    # Find potentially missing skills (skills/keywords from job terms not in resume skills)
-    # This is a simplification; a missing "keyword" might not be a "skill" you need to add.
-    # It's better to focus on missing skills from the predefined list or job-specific entities.
-    # Let's redefine missing skills as skills/entities found in the job text but not in resume skills.
-    job_entities = []
+    for i, line in enumerate(lines):
+        # Check if the current line is the start of the next section in our sorted list
+        if section_start_index < len(sorted_start_lines) and i == sorted_start_lines[section_start_index]:
+            # Update the current section name
+            current_section = section_starts[i]
+            section_start_index += 1 # Move to the next expected section start line
+            # Optionally, you might want to add the header line itself to the section content
+            # sections[current_section] += line.strip() + "\n" # Decide if headers should be included
+        else:
+            # If it's not a header line, add it to the current section's content
+            sections[current_section] += line.strip() + "\n"
+
+    # Clean up whitespace within sections
+    for section_name in sections:
+        sections[section_name] = re.sub(r'\n{2,}', '\n\n', sections[section_name].strip()) # Reduce multiple newlines within sections
+
+    # Handle case where no standard headers were found - put everything in 'content'
+    # Only do this if 'other' is the only section found after processing
+    if not section_found or (len(sections) == 1 and 'other' in sections and sections['other'].strip()):
+         sections = {'content': text.strip()}
+    else:
+        # If 'other' section exists but contains only whitespace after cleaning, remove it
+        if 'other' in sections and not sections['other'].strip():
+             del sections['other']
+        # If 'other' section exists and has content, keep it for unclassified text at the start/end
+        pass
+
+
+    return dict(sections) # Convert defaultdict back to dict
+
+def extract_contact_info(text):
+    """Extracts contact information using regex and spaCy NER."""
+    email_pattern = r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b'
+    # More robust phone pattern, allowing various formats
+    phone_pattern = r'(?:\+?\d{1,3}[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}\b|\b\d{7,}\b'
+    linkedin_pattern = r'linkedin\.com/in/[\w-]+'
+
+    emails = re.findall(email_pattern, text)
+    phones = re.findall(phone_pattern, text)
+    linkedin = re.findall(linkedin_pattern, text)
+
+    locations = []
+    name = []
+    # Use spaCy only if the model loaded successfully
     if nlp:
-         doc = nlp(job_text_processed)
-         job_entities = [ent.text.lower() for ent in doc.ents if ent.label_ in ["ORG", "PRODUCT", "LANGUAGE", "TECH"] and len(ent.text) > 2]
+        doc = nlp(text[:2000]) # Process a larger chunk for location/name
+        locations = list(set([ent.text for ent in doc.ents if ent.label_ == "GPE"])) # Use set to get unique locations
 
-    all_job_relevant_terms = set(job_skills + job_entities)
-
-    # Compare lowercase job terms against lowercase resume skills
-    missing_skills = [term for term in all_job_relevant_terms if term not in resume_skills_lower]
-
-
-    # Optional: Refine missing skills to be more relevant (e.g., filter out very common words)
-    # This requires a more sophisticated approach, potentially comparing embeddings or using a skill taxonomy.
-    # For now, the current approach identifies terms in the job that weren't in your resume's skill list.
+        # Basic attempt to get a name from the first few lines if no contact section found
+        # Also look for PERSON entities anywhere if a contact section IS found, but prioritize start
+        doc_full = nlp(text[:500]) # Look at the first 500 characters for a name
+        names_found = [ent.text for ent in doc_full.ents if ent.label_ == "PERSON"]
+        if names_found:
+             # Take the longest name found as a potential candidate
+             name = [max(names_found, key=len)]
 
 
-    return matched_skills, missing_skills
+    return {
+        'emails': emails,
+        'phones': phones,
+        'linkedin': linkedin,
+        'locations': locations,
+        'name': name # Include name extraction here
+    }
 
-# Removed the analyze_resume function from this file as it's redundant
-# and should be handled by the resume_parser module.
+def analyze_resume(text):
+    """Analyzes resume text for structure, contact info, and completeness."""
+    # Check if text extraction failed
+    if isinstance(text, str) and text.startswith("Error extracting"):
+        return {'error': text}
+    if not isinstance(text, str) or not text.strip():
+         return {'error': "No text extracted from resume."}
+
+
+    sections = extract_resume_sections(text)
+    contact_info = extract_contact_info(text)
+
+    # Use spaCy only if the model loaded successfully
+    entities = {}
+    if nlp:
+        doc = nlp(text[:5000]) # Process a larger chunk for entities
+        entities = {
+            'organizations': list(set([ent.text for ent in doc.ents if ent.label_ == "ORG"])),
+            'dates': list(set([ent.text for ent in doc.ents if ent.label_ == "DATE"])),
+            'people': list(set([ent.text for ent in doc.ents if ent.label_ == "PERSON"])) # Includes potential name
+        }
+
+    # Calculate completeness score based on presence and length of key sections
+    # Adjusted weights slightly to make 100 achievable with core sections + contact
+    section_weights = {
+        'contact': 15, # Increased weight for contact info presence
+        'summary': 10,
+        'education': 20,
+        'experience': 30,
+        'skills': 20,
+        'projects': 5,
+        'achievements': 5,
+        'languages': 5
+    }
+
+    completeness_score = 0
+
+    # Add score for contact info presence
+    # Max contact score = 15 (5 for email, 5 for phone, 3 for linkedin, 2 for location)
+    if contact_info.get('emails'): completeness_score += 5
+    if contact_info.get('phones'): completeness_score += 5
+    if contact_info.get('linkedin'): completeness_score += 3
+    if contact_info.get('locations'): completeness_score += 2
+    if contact_info.get('name'): completeness_score += 3 # Add score for name detection
+
+
+    # Add score for sections based on presence and minimum content length
+    min_section_length = 50 # Minimum characters to consider a section present and meaningful
+    for section, weight in section_weights.items():
+        # Check if the section was detected AND has sufficient content
+        # Exclude 'contact' from this length check as its presence is scored above
+        if section != 'contact' and section in sections and len(sections[section].strip()) > min_section_length:
+             completeness_score += weight
+
+    # Cap score at 100
+    completeness_score = min(completeness_score, 100)
+
+
+    return {
+        'sections': sections, # Dictionary of section names to content
+        'contact_info': contact_info, # Dictionary of contact details lists
+        'entities': entities, # Dictionary of extracted entities
+        'completeness_score': completeness_score, # Calculated score
+        'text': text # Include the raw extracted text for reference
+    }
+
+# Note: The semantic_matcher.py module would need to use the 'text' and 'skills'
+# from the output of this analyze_resume function.
+# extract_resume_keywords and extract_skills_from_resume might be redundant
+# if analyze_resume_skills already provides them.
+# Ensure analyze_resume_skills is separate and focuses just on skills/keywords.
+
+# Example of how analyze_resume_skills might look (assuming it exists)
+# def analyze_resume_skills(text):
+#     # Your logic to extract skills and keywords
+#     skills = ["skill1", "skill2"] # Example
+#     keywords = ["keyword1", "keyword2"] # Example
+#     return {"skills": skills, "keywords": keywords}
 
