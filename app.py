@@ -146,7 +146,30 @@ with st.sidebar:
     # App mode selection
     app_mode = st.radio("Select Mode", ["Resume-to-Job Matching", "Resume Analysis", "Job Market Explorer", "Resume Creator"])
  
-    elif app_mode == "Resume Creator":
+    
+    # Load jobs based on the mode
+    if app_mode == "Job Market Explorer":
+        jobs_df = load_jobs()
+        
+        # Job market filters
+        st.subheader("Job Market Filters")
+        salary_min = st.number_input("Minimum Salary (₮)", min_value=0, value=0, step=100000)
+
+    else:
+        jobs_df = load_jobs()
+
+    # About section
+    st.markdown("---")
+    st.write("#### About")
+    st.write("""
+    Smart Job Matcher helps you find jobs that match your skills and experience using advanced AI matching technology.
+    
+    Upload your resume and get personalized job recommendations!
+    """)
+
+# Main app content
+
+elif app_mode == "Resume Creator":
     st.markdown('<div class="sub-header">📄 Resume Creator</div>', unsafe_allow_html=True)
     
     st.info("Fill in the fields below to generate your resume")
@@ -191,28 +214,7 @@ with st.sidebar:
             file_name=f"{name}_resume.docx",
             mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
         )
-    
-    # Load jobs based on the mode
-    if app_mode == "Job Market Explorer":
-        jobs_df = load_jobs()
-        
-        # Job market filters
-        st.subheader("Job Market Filters")
-        salary_min = st.number_input("Minimum Salary (₮)", min_value=0, value=0, step=100000)
 
-    else:
-        jobs_df = load_jobs()
-
-    # About section
-    st.markdown("---")
-    st.write("#### About")
-    st.write("""
-    Smart Job Matcher helps you find jobs that match your skills and experience using advanced AI matching technology.
-    
-    Upload your resume and get personalized job recommendations!
-    """)
-
-# Main app content
 if app_mode == "Resume-to-Job Matching":
     col1, col2 = st.columns([2, 1])
     
