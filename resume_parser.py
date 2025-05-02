@@ -293,4 +293,3 @@ def analyze_resume(text):
 #     skills = ["skill1", "skill2"] # Example
 #     keywords = ["keyword1", "keyword2"] # Example
 #     return {"skills": skills, "keywords": keywords}
-
