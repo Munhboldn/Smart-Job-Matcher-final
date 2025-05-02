@@ -656,7 +656,7 @@ elif app_mode == "Resume-to-Job Matching":
 
             if common_missing:
                 st.markdown("#### Top Skills to Consider Adding or Highlighting:")
-                st.info("These skills appeared frequently in the job descriptions and requirements of your top matches but were not detected in your resume's skill list.")
+                st.info("These skills appeared frequently in the job descriptions and requirements of the filtered jobs, suggesting common skills or qualifications employers are seeking.")
                 cols = st.columns(3) # Use columns for listing skills
                 for i, (skill, count) in enumerate(common_missing):
                      cols[i % 3].markdown(f"- **{skill}** (mentioned in {count} job{'s' if count > 1 else ''})")
@@ -1140,3 +1140,9 @@ elif app_mode == "Job Market Explorer":
                      st.error(f"Error generating word cloud: {e}")
             else:
                 st.info("No sufficient job description/requirements text available to generate a word cloud.")
+
+
+# Footer
+st.markdown("---")
+st.write("Developed with ❤️ using Streamlit")
+st.write("Data source: Zangia (Filtered public listings)")
