@@ -450,12 +450,13 @@ if app_mode == "Resume-to-Job Matching":
                 st.markdown('</div>', unsafe_allow_html=True)
 
 elif app_mode == "Resume Analysis":
-    st.markdown('<div class="sub-header">📊 Resume Analyzer</div>', unsafe_allow_html=True)
+
+    st.markdown('📊 Resume Analyzer', unsafe_allow_html=True)
     st.write("Upload your resume to get a detailed analysis of its content and effectiveness.")
-    
+
     # Upload resume for analysis
-    uploaded_file = st.file_uploader("", type=["pdf", "docx"])
-    
+    uploaded_file = st.file_uploader("", type=["pdf", "docx"], key="analysis_uploader") # Added unique key
+
     if uploaded_file:
         # Process the resume
         with st.spinner("Analyzing your resume..."):
@@ -466,152 +467,206 @@ elif app_mode == "Resume Analysis":
             else:
                 st.error("Unsupported file format.")
                 resume_text = ""
-            
+
             # Analyze resume
-            resume_analysis = analyze_resume(resume_text)
-            skills_analysis = analyze_resume_skills(resume_text)
-            
-        # Display analysis results
-        if resume_text:
-            # Create tabs for different analysis views
-            tab1, tab2, tab3 = st.tabs(["Overview", "Content Analysis", "Improvement Tips"])
-            
-            with tab1:
-                # Overview metrics
-                col1, col2, col3 = st.columns(3)
-                
-                with col1:
-                    # Completeness score
-                    completeness = resume_analysis.get('completeness_score', 0)
-                    st.metric("Resume Completeness", f"{completeness}%")
-                    st.progress(completeness/100)
-                
-                with col2:
-                    # Section count
-                    sections = resume_analysis.get('sections', {})
-                    section_count = len([s for s in sections if s not in ['other', 'content']])
-                    st.metric("Sections Found", section_count)
-                    
-                with col3:
-                    # Skills count
-                    skills_count = len(skills_analysis.get('skills', []))
-                    st.metric("Skills Detected", skills_count)
-                
-                # Contact information
-                st.markdown("#### Contact Information")
-                contact_info = resume_analysis.get('contact_info', {})
-                
-                if contact_info.get('emails') or contact_info.get('phones') or contact_info.get('linkedin'):
-                    if contact_info.get('emails'):
-                        st.write(f"📧 Email: {contact_info['emails'][0]}")
-                    if contact_info.get('phones'):
-                        st.write(f"📱 Phone: {contact_info['phones'][0]}")
-                    if contact_info.get('linkedin'):
-                        st.write(f"🔗 LinkedIn: {contact_info['linkedin'][0]}")
-                    if contact_info.get('locations'):
-                        st.write(f"📍 Location: {', '.join(contact_info['locations'])}")
-                else:
-                    st.warning("No contact information detected. Make sure your resume includes clear contact details.")
-            
-            with tab2:
-                # Skills analysis
-                st.markdown("#### Skills Analysis")
-                
-                # Display skills as tags
-                skills = skills_analysis.get('skills', [])
-                if skills:
-                    # Create columns for skills display
-                    cols = st.columns(3)
-                    for i, skill in enumerate(skills):
-                        cols[i % 3].markdown(f"- {skill}")
-                else:
-                    st.warning("No specific skills detected. Consider adding more explicit skills to your resume.")
-                
-                # Keywords visualization
-                st.markdown("#### Keywords")
-                keywords = skills_analysis.get('keywords', [])
-                if keywords:
-                    # Create a word frequency dictionary for visualization
-                    keyword_freq = {kw: keywords.count(kw) for kw in set(keywords[:20])}
-                    
-                    # Sort by frequency
-                    sorted_keywords = sorted(keyword_freq.items(), key=lambda x: x[1], reverse=True)
-                    
-                    # Create horizontal bar chart
-                    fig = go.Figure(go.Bar(
-                        x=[v for _, v in sorted_keywords],
-                        y=[k for k, _ in sorted_keywords],
-                        orientation='h',
-                        marker_color='royalblue'
-                    ))
-                    fig.update_layout(
-                        title="Top Keywords in Your Resume",
-                        xaxis_title="Frequency",
-                        yaxis_title="Keyword",
-                        height=400
-                    )
-                    st.plotly_chart(fig, use_container_width=True)
-                
-                # Display resume sections
-                st.markdown("#### Resume Sections")
-                sections = resume_analysis.get('sections', {})
-                
-                if sections:
-                    for section_name, content in sections.items():
-                        if section_name not in ['other', 'content'] and content.strip():
-                            with st.expander(f"{section_name.title()} Section"):
-                                st.write(content)
-                else:
-                    st.warning("No clear sections detected in your resume.")
-            
-            with tab3:
-                # Resume improvement suggestions
-                st.markdown("#### Resume Improvement Suggestions")
-                
-                # Check completeness
-                if completeness < 70:
-                    st.markdown("##### 🔴 Completeness Issues:")
-                    missing_sections = []
-                    for section in ['contact', 'education', 'experience', 'skills']:
-                        if section not in sections or len(sections[section]) < 20:
-                            missing_sections.append(section)
-                    
-                    if missing_sections:
-                        st.markdown("Consider adding or expanding these sections:")
-                        for section in missing_sections:
-                            st.markdown(f"- **{section.title()}** section")
-                
-                # Skills suggestions
-                if len(skills) < 10:
-                    st.markdown("##### 🔶 Skills Recommendations:")
-                    st.markdown("""
-                    - Add more specific skills relevant to your target industry
-                    - Include both technical and soft skills
-                    - Consider adding skill levels (e.g., "Proficient in Python")
-                    """)
-                
-                # Content analysis
-                st.markdown("##### 📝 Content Tips:")
-                if len(resume_text) < 1500:
-                    st.markdown("- Your resume seems brief. Consider adding more detail to your experiences.")
-                
-                # General tips
-                st.markdown("##### 💡 General Improvements:")
-                st.markdown("""
-                - Use action verbs to start bullet points (achieved, created, developed, etc.)
-                - Quantify your achievements with numbers where possible
-                - Ensure consistent formatting throughout the document
-                - Proofread for spelling and grammar errors
-                - Tailor your resume for specific job applications
-                """)
-                
-                # Resume samples suggestion
-                st.markdown("##### 📚 Additional Resources:")
-                st.markdown("""
-                - Review sample resumes in your industry for inspiration
-                - Consider having your resume reviewed by a professional
-                - Use industry-specific keywords found in job descriptions
-                """)
+            if resume_text:
+                resume_analysis = analyze_resume(resume_text) # General structural analysis
+                skills_analysis = analyze_resume_skills(resume_text) # Skills and keyword analysis
+            else:
+                 resume_analysis = None
+                 skills_analysis = None
+
+
+    # Display analysis results
+    if resume_analysis is not None and skills_analysis is not None:
+        # Create tabs for different analysis views
+        tab1, tab2, tab3 = st.tabs(["Overview", "Content Details", "Improvement Suggestions"]) # Renamed Content Analysis & Improvement Tips
+
+        with tab1:
+            st.markdown("#### Summary Overview")
+
+            # Overview metrics
+            col1, col2, col3 = st.columns(3)
+
+            # Completeness score
+            completeness = resume_analysis.get('completeness_score', 0)
+            with col1:
+                st.metric("Completeness Score", f"{completeness}%")
+                st.progress(completeness/100)
+                if completeness < 50:
+                    st.warning("Your resume seems very incomplete. Consider adding key sections.")
+                elif completeness < 80:
+                     st.info("Your resume could be more complete. Ensure all relevant sections are present.")
+
+
+            # Section count
+            sections = resume_analysis.get('sections', {})
+            # Filter out 'other' and 'content' which are usually catch-alls
+            detected_sections = [s for s in sections if s not in ['other', 'content']]
+            section_count = len(detected_sections)
+            with col2:
+                 st.metric("Key Sections Found", section_count)
+                 if section_count < 3: # Basic check for core sections like Contact, Education, Experience
+                     st.warning("Fewer key sections detected than expected. Ensure you have Contact, Education, and Experience sections.")
+
+
+            # Skills count
+            skills = skills_analysis.get('skills', [])
+            skills_count = len(skills)
+            with col3:
+                 st.metric("Skills Detected", skills_count)
+                 if skills_count < 10:
+                     st.info("Detecting more specific skills can improve job matching.")
+
+            st.markdown("---") # Separator
+
+            # Contact information
+            st.markdown("#### Contact Information")
+            contact_info = resume_analysis.get('contact_info', {})
+
+            if contact_info.get('emails') or contact_info.get('phones') or contact_info.get('linkedin') or contact_info.get('locations'):
+                if contact_info.get('emails'):
+                    st.write(f"📧 **Email:** {contact_info['emails'][0]}")
+                if contact_info.get('phones'):
+                    st.write(f"📱 **Phone:** {contact_info['phones'][0]}")
+                if contact_info.get('linkedin'):
+                    st.write(f"🔗 **LinkedIn:** {contact_info['linkedin'][0]}")
+                if contact_info.get('locations'):
+                     st.write(f"📍 **Location:** {', '.join(contact_info['locations'])}")
+            else:
+                st.error("❌ **No or incomplete contact information detected.** Ensure your resume includes clear Email, Phone, and ideally LinkedIn/Location.")
+
+
+        with tab2: # Renamed to Content Details
+            st.markdown("#### Content Breakdown")
+
+            # Skills display
+            st.markdown("##### 🛠️ Detected Skills")
+            if skills:
+                st.info("These are the specific skills identified in your resume. Highlight the most relevant ones for target jobs.")
+                # Use columns for a more organized tag-like display
+                cols = st.columns(5) # Use more columns
+                for i, skill in enumerate(skills):
+                    cols[i % 5].markdown(f"- `{skill}`") # Using markdown code formatting for clarity
+            else:
+                st.warning("⚠️ **No specific skills detected.** Add a dedicated 'Skills' section or sprinkle keywords throughout your experience.")
+
+            st.markdown("---") # Separator
+
+            # Keywords visualization (Word Cloud)
+            st.markdown("##### 🔑 Key Terms and Phrases")
+            st.info("This word cloud shows the most frequent and potentially relevant terms found in your resume, giving you an idea of its focus.")
+
+            keywords = skills_analysis.get('keywords', [])
+            if keywords:
+                # Join keywords into a single string for the word cloud
+                text_for_wordcloud = " ".join(keywords)
+
+                # Create and display word cloud
+                try:
+                    from wordcloud import WordCloud
+                    import matplotlib.pyplot as plt
+
+                    wordcloud = WordCloud(width=800, height=400, background_color='white',
+                                        colormap='viridis', max_words=50, min_font_size=10).generate(text_for_wordcloud)
+
+                    fig, ax = plt.subplots(figsize=(10, 5))
+                    ax.imshow(wordcloud, interpolation='bilinear')
+                    ax.axis('off')
+                    st.pyplot(fig)
+
+                except ImportError:
+                    st.warning("`wordcloud` package not installed. Cannot display word cloud. Install it using `pip install wordcloud matplotlib`.")
+                except Exception as e:
+                    st.error(f"Error generating word cloud: {e}")
+
+            else:
+                st.info("No significant keywords detected for visualization.")
+
+            st.markdown("---") # Separator
+
+            # Display resume sections
+            st.markdown("##### 📄 Resume Sections Content")
+            st.info("Review the extracted content for each section to ensure accuracy and completeness.")
+            # Filter out 'other' and 'content' from sections display unless they have substantial text
+            display_sections = {k: v for k, v in sections.items() if k not in ['other', 'content'] or (k in ['other', 'content'] and len(v.strip()) > 50)}
+
+            if display_sections:
+                for section_name, content in display_sections.items():
+                    # Use a slightly better title for expanders
+                    section_display_name = section_name.replace('_', ' ').title()
+                    with st.expander(f"{section_display_name} Section"):
+                        if content.strip():
+                             st.text(content.strip()) # Use st.text to preserve formatting
+                        else:
+                             st.info(f"This section was detected but appears empty.")
+
+            else:
+                st.warning("⚠️ **No clear, standard sections detected in your resume.** Using standard headings (like 'Education', 'Work Experience', 'Skills') is crucial for ATS.")
+
+        with tab3: # Renamed to Improvement Suggestions
+            st.markdown("#### Improve Your Resume")
+            st.info("Here are tailored suggestions to enhance your resume based on the analysis.")
+
+            # --- Tailored Suggestions based on Analysis ---
+
+            st.markdown("##### Based on Analysis:")
+
+            # Completeness suggestions
+            if completeness < 70:
+                st.markdown("###### 🔴 Completeness & Structure:")
+                st.markdown(f"- Your resume completeness score is **{completeness}%**. Key sections might be missing or brief.")
+                st.markdown("- Ensure you have dedicated sections for: **Contact Information, Summary/Objective, Work Experience, Education, and Skills.**")
+                # Check for specific missing core sections
+                core_sections = ['contact_info', 'education', 'experience', 'skills']
+                missing_core = [s.replace('_info', '').title() for s in core_sections if s not in resume_analysis or (s != 'contact_info' and len(sections.get(s, '').strip()) < 50) or (s == 'contact_info' and not any(contact_info.values()))]
+                if missing_core:
+                     st.markdown(f"- Specifically, consider adding or expanding sections like: **{', '.join(missing_core)}**.")
+
+
+            # Skills suggestions
+            if skills_count < 15: # Slightly higher threshold for actionable advice
+                 st.markdown("###### 🔶 Skills Visibility:")
+                 st.markdown(f"- Only **{skills_count}** distinct skills were easily detected.")
+                 st.markdown("- Explicitly list your technical skills, software proficiency, and relevant soft skills in a dedicated 'Skills' section.")
+                 st.markdown("- Review job descriptions for roles you want and incorporate relevant keywords into your skills and experience sections.")
+
+
+            # Content depth check (basic based on total text length)
+            if len(resume_text) < 1000 and completeness >= 50: # Avoid this tip if completeness is already very low
+                 st.markdown("###### 📝 Content Depth:")
+                 st.markdown("- Your resume text is relatively brief. Expand on your accomplishments in your experience section.")
+                 st.markdown("- Use detailed bullet points that describe **what you did**, **how you did it**, and **the positive result (quantify!)**.")
+
+            st.markdown("---") # Separator
+
+            # --- General Best Practices & ATS Tips ---
+
+            st.markdown("##### General Best Practices & ATS Tips:")
+
+            st.markdown("""
+            - **Quantify Achievements:** Whenever possible, use numbers, percentages, or data points to describe your impact (e.g., "Increased efficiency by 20%", "Managed a team of 5").
+            - **Use Action Verbs:** Start bullet points with strong action verbs (e.g., *Led, Developed, Managed, Created, Implemented, Analyzed*).
+            - **Tailor Your Resume:** Modify your resume slightly for each job application by incorporating keywords from the job description.
+            - **ATS Formatting:**
+                - Use standard resume section titles (Education, Work Experience, Skills, Projects, etc.).
+                - Avoid fancy templates, tables, columns, headers/footers, or excessive graphics that confuse ATS software.
+                - Use standard fonts (Arial, Calibri, Times New Roman).
+                - Save as a `.docx` or `.pdf` (check application instructions).
+            - **Proofread:** Thoroughly check for typos, grammatical errors, and inconsistent formatting.
+            """)
+
+            st.markdown("---") # Separator
+
+            st.markdown("##### 📚 Additional Resources:")
+            st.markdown("""
+            - Review successful resume examples in your target industry.
+            - Use tools like Grammarly to check for writing errors.
+            - Consider getting feedback from peers or career services.
+            """)
+
+    elif uploaded_file and (resume_analysis is None or skills_analysis is None):
+        st.error("Could not process the resume file. Please check the format or try a different file.")
 
 elif app_mode == "Job Market Explorer":
     st.markdown('<div class="sub-header">🔍 Job Market Explorer</div>', unsafe_allow_html=True)
