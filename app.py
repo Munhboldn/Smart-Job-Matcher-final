@@ -229,10 +229,8 @@ with tab3:
     - Ensure consistent formatting, fonts (use standard, professional fonts like Arial, Calibri, Times New Roman, Georgia, Verdana), and spacing throughout the document for readability.
     - Keep your resume concise and focused. Typically 1 page for less than 10 years of experience, and a maximum of 2 pages for more extensive experience.
     - Consider adding a professional summary or objective statement at the top, tailored to the type of job you seek.
-    """)
-
-    st.markdown("### 🤖 Applicant Tracking System (ATS) Optimization Tips")
-    st.markdown("""
+    
+    ### 🤖 Applicant Tracking System (ATS) Optimization Tips
     - **Use Standard Section Headings**: Use clear, common titles like "Education", "Experience", "Skills", "Projects", etc.
     - **Include Keywords**: Mirror the language and keywords used in the job description throughout your resume, especially in skills and experience sections.
     - **Simple Formatting**: Avoid complex layouts, tables, text boxes, headers/footers (some systems struggle with these), and heavy graphics. Use bullet points effectively.
