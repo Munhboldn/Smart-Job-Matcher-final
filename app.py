@@ -241,7 +241,7 @@ with tab3:
    
 
 # Resume Analysis View
-    elif app_mode == "Resume Analysis":
+elif app_mode == "Resume Analysis":
     st.subheader("📊 Resume Analyzer")
     uploaded_file = st.file_uploader("Upload your resume (PDF or DOCX)", type=["pdf", "docx"])
     if uploaded_file:
