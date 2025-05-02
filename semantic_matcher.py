@@ -270,4 +270,4 @@ def get_skill_matches(resume_skills, job_text):
     return matched_skills, missing_skills
 
 # Removed the analyze_resume function from this file as it's redundant
-# and should be handled by the resume_parser module
+# and should be handled by the resume_parser module.
