@@ -154,9 +154,11 @@ def load_jobs():
 # Load jobs data upfront
 jobs_df = load_jobs()
 if jobs_df.empty:
-     # If jobs_df is empty due to loading error, stop the app
-     # st.stop() # Stopping might be too harsh, maybe just disable job-related features
-     pass # Allow other modes to function if job data is not critical
+     # If jobs_df is empty due to loading error, disable job-related features
+     job_data_loaded = False
+     st.warning("Job data could not be loaded. Job matching and Job Market Explorer are unavailable.")
+else:
+    job_data_loaded = True
 
 
 # Grouped sector keywords with enhanced categories
@@ -187,7 +189,7 @@ with st.sidebar:
     app_mode = st.radio("Select Mode", ["Resume-to-Job Matching", "Resume Analysis", "Job Market Explorer", "Resume Creator"])
 
     # Add filters specific to Job Market Explorer mode
-    if app_mode == "Job Market Explorer" and not jobs_df.empty:
+    if app_mode == "Job Market Explorer" and job_data_loaded:
         st.subheader("Job Market Filters")
         # Use the loaded jobs_df for filter options
         available_companies = sorted(jobs_df['Company'].unique().tolist())
@@ -225,8 +227,8 @@ with st.sidebar:
 
         available_sectors = list(sector_options.keys())
         selected_job_sectors = st.multiselect("Filter by Sector", options=available_sectors, placeholder="Select sectors...", key="explorer_sector_filter")
-    elif app_mode == "Job Market Explorer" and jobs_df.empty:
-        st.warning("Job data could not be loaded. Job Market Explorer is unavailable.")
+    elif app_mode == "Job Market Explorer" and not job_data_loaded:
+        pass # Message already shown above
 
 
     st.markdown("---")
@@ -414,7 +416,7 @@ elif app_mode == "Resume-to-Job Matching":
 
     # Job matching section
     # Only show matching options if resume processing and job data loading were successful
-    if st.session_state.resume_text and not st.session_state.resume_text.startswith("Error extracting") and st.session_state.resume_structure_analysis is not None and not jobs_df.empty:
+    if st.session_state.resume_text and not st.session_state.resume_text.startswith("Error extracting") and st.session_state.resume_structure_analysis is not None and job_data_loaded:
         st.markdown('<div class="sub-header">🔎 Find Matching Jobs</div>', unsafe_allow_html=True)
 
         col1, col2 = st.columns([3, 1])
@@ -667,7 +669,7 @@ elif app_mode == "Resume-to-Job Matching":
         st.warning("Please upload a valid resume file (PDF or DOCX) and ensure text extraction was successful to find matching jobs.")
     elif not uploaded_file:
          st.info("Upload your resume above to find matching jobs based on your profile.")
-    elif jobs_df.empty:
+    elif not job_data_loaded:
          st.warning("Job data could not be loaded. Job matching is unavailable.")
 
 
@@ -790,7 +792,10 @@ elif app_mode == "Resume Analysis":
             st.markdown("#### Contact Information")
             contact_info = resume_structure_analysis.get('contact_info', {})
 
-            if contact_info.get('emails') or contact_info.get('phones') or contact_info.get('linkedin') or contact_info.get('locations'):
+            if contact_info.get('emails') or contact_info.get('phones') or contact_info.get('linkedin') or contact_info.get('locations') or contact_info.get('name'):
+                # Display Name if found
+                if contact_info.get('name'):
+                     st.write(f"👤 **Name:** {contact_info['name'][0]}")
                 if contact_info.get('emails'):
                     st.write(f"📧 **Email:** {contact_info['emails'][0]}")
                 if contact_info.get('phones'):
@@ -800,7 +805,7 @@ elif app_mode == "Resume Analysis":
                 if contact_info.get('locations'):
                      st.write(f"📍 **Location:** {', '.join(contact_info['locations'])}")
             else:
-                st.error("❌ **No or incomplete contact information detected.** Ensure your resume includes clear Email, Phone, and ideally LinkedIn/Location.")
+                st.error("❌ **No or incomplete contact information detected.** Ensure your resume includes clear Name, Email, Phone, and ideally LinkedIn/Location.")
 
 
         with tab2: # Renamed to Content Details
@@ -851,7 +856,7 @@ elif app_mode == "Resume Analysis":
             st.markdown("##### 📄 Resume Sections Content")
             st.info("Review the extracted content for each section to ensure accuracy and completeness.")
             # Filter out 'other' and 'content' from sections display unless they have substantial text
-            sections_to_display = {k: v for k, v in sections.items() if k not in ['other', 'content'] or (k in ['other', 'content'] and len(v.strip()) > 50)}
+            sections_to_display = {k: v for k, v in sections.items() if k not in ['other', 'content'] or (k in ['other', 'content'] and len(sections[k].strip()) > 50)}
 
             if sections_to_display:
                 for section_name, content in sections_to_display.items():
@@ -961,8 +966,9 @@ elif app_mode == "Job Market Explorer":
     st.markdown('🔍 Job Market Explorer', unsafe_allow_html=True)
     st.write("Explore the current job market trends and opportunities based on the loaded data.")
 
-    if jobs_df.empty:
-         st.warning("Job data could not be loaded. Job Market Explorer is unavailable.")
+    if not job_data_loaded:
+         # Message already shown above
+         pass
     else:
         # Start with the full dataset
         filtered_jobs = jobs_df.copy()
@@ -1079,13 +1085,17 @@ elif app_mode == "Job Market Explorer":
             st.markdown("#### Available Job Listings")
             # Display URL as clickable link in DataFrame
             def make_clickable_link(url):
-                if url and url.startswith('http'):
+                if url and isinstance(url, str) and url.startswith('http'):
                     return f'<a href="{url}" target="_blank">{url}</a>'
-                return url # Return as is if not a valid http link
+                return url # Return as is if not a valid http link or not a string
 
             # Apply the function to the URL column and display with unsafe_allow_html
+            # Modify the DataFrame column directly BEFORE passing to st.dataframe
+            filtered_jobs_display = filtered_jobs[['Job title', 'Company', 'Salary', 'URL']].copy()
+            filtered_jobs_display['URL'] = filtered_jobs_display['URL'].apply(make_clickable_link)
+
             st.dataframe(
-                filtered_jobs[['Job title', 'Company', 'Salary', 'URL']].style.format({'URL': make_clickable_link}),
+                filtered_jobs_display, # Use the modified DataFrame
                 use_container_width=True,
                 unsafe_allow_html=True # Allow HTML in DataFrame for clickable links
             )
