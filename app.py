@@ -173,13 +173,13 @@ if app_mode == "Resume Creator":
     linkedin = st.text_input("LinkedIn URL")
     summary = st.text_area("Professional Summary", height=100)
 
-    st.markdown("### \ud83c\udfeb Education")
+    st.markdown("### 🎓 Education")
     education = st.text_area("List your education background", height=150)
 
-    st.markdown("### \ud83d\udcbc Work Experience")
+    st.markdown("### 💼 Work Experience")
     experience = st.text_area("List your work experience", height=200)
 
-    st.markdown("### \ud83d\udee0\ufe0f Skills")
+    st.markdown("### 🛠️ Skills")
     skills = st.text_area("List your skills separated by commas")
 
     if st.button("Generate Resume"):
@@ -201,7 +201,7 @@ if app_mode == "Resume Creator":
         buffer.seek(0)
 
         st.download_button(
-            label="\ud83d\udcc4 Download Resume",
+            label="📄 Download Resume",
             data=buffer,
             file_name=f"{name}_resume.docx",
             mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
