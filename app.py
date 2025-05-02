@@ -27,7 +27,7 @@ try:
     import matplotlib.pyplot as plt
 except ImportError as e:
     st.error(f"Missing required modules or functions: {e}. Please ensure resume_parser.py, semantic_matcher.py, and necessary libraries are installed and up to date.")
-    st.stop() # Stop execution if modules are missing
+    st.stop() # Stop execution if modules is missing
 
 # Page configuration with custom theme
 st.set_page_config(
@@ -618,7 +618,7 @@ elif app_mode == "Resume-to-Job Matching":
                 label="⬇ Download results as Excel",
                 data=output,
                 file_name="matched_jobs.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.document",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 key="matching_download_button"
             )
 
@@ -769,7 +769,7 @@ elif app_mode == "Resume Analysis":
 
             # Section count
             sections = resume_structure_analysis.get('sections', {})
-            # Filter out 'other' and 'content' which are usually catch-alls unless they have significant content
+            # Filter out 'other' and 'content' unless they have significant content
             detected_sections = [s for s in sections if s not in ['other', 'content'] or (s in ['other', 'content'] and len(sections[s].strip()) > 50)]
             section_count = len(detected_sections)
             with col2:
@@ -1127,3 +1127,9 @@ elif app_mode == "Job Market Explorer":
                      st.error(f"Error generating word cloud: {e}")
             else:
                 st.info("No sufficient job description/requirements text available to generate a word cloud.")
+
+
+# Footer
+st.markdown("---")
+st.write("Developed with ❤️ using Streamlit")
+st.write("Data source: Zangia (Filtered public listings)")
