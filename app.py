@@ -685,6 +685,31 @@ elif app_mode == "Job Market Explorer":
             st.pyplot(fig)
         except ImportError:
             st.warning("WordCloud package not installed. Install it to see skill word cloud visualization.")
+            
+elif app_mode == "Resume Enhancement":
+    st.markdown('<div class="sub-header">✨ Resume Enhancement</div>', unsafe_allow_html=True)
+    
+    st.markdown("### 📝 General Resume Improvement Suggestions")
+    st.markdown("""
+- Use **strong action verbs** to start bullet points (e.g., *Managed*, *Developed*, *Led*, *Implemented*).
+- **Quantify** achievements with numbers and metrics where possible (e.g., *Increased sales by 15%*).
+- Tailor your resume using **keywords from the job description**.
+- **Proofread** your resume to remove typos (tools like Grammarly can help).
+- Keep formatting **clean and consistent** (fonts, spacing, layout).
+- Keep it **concise**: 1 page if <10 years experience, max 2 pages otherwise.
+- Consider a **professional summary or objective** at the top.
+""")
+
+    st.markdown("### 🤖 Applicant Tracking System (ATS) Optimization Tips")
+    st.markdown("""
+- Use **standard section headings** (Education, Experience, Skills, Projects).
+- Include **keywords** from the job post in your skills and experience.
+- Avoid complex layouts: no tables, headers, footers, or graphics.
+- Stick to **common fonts**: Arial, Calibri, Times New Roman, Verdana (10–12pt).
+- Use **reverse chronological order** for experience and education.
+- Save as **PDF or DOCX** (check the application instructions).
+""")
+
 
 # Footer
 st.markdown("---")
