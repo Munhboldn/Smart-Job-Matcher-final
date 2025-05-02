@@ -515,10 +515,23 @@ elif app_mode == "Resume-to-Job Matching":
             tab1, tab2 = st.tabs(["List View", "Detailed View"])
 
             with tab1:
+                # Display URL as clickable link in DataFrame - FIX APPLIED HERE
+                def make_clickable_link(url):
+                    if url and isinstance(url, str) and url.startswith('http'):
+                        return f'<a href="{url}" target="_blank">{url}</a>'
+                    return url # Return as is if not a valid http link or not a string
+
+                # Apply the function to the URL column and display with unsafe_allow_html
+                # Modify the DataFrame column directly BEFORE passing to st.dataframe
+                filtered_jobs_display = st.session_state.job_results[['Job title', 'Company', 'Salary', 'match_score', 'URL']].copy()
+                filtered_jobs_display['URL'] = filtered_jobs_display['URL'].apply(make_clickable_link)
+
+
                 st.dataframe(
-                    st.session_state.job_results[['Job title', 'Company', 'Salary', 'match_score', 'URL']].style.format({'match_score': '{:.1f}%'}),
-                    use_container_width=True
-                    )
+                    filtered_jobs_display, # Use the modified DataFrame
+                    use_container_width=True,
+                    unsafe_allow_html=True # Allow HTML in DataFrame for clickable links
+                )
 
             with tab2:
                 # Show detailed job cards
@@ -553,9 +566,9 @@ elif app_mode == "Resume-to-Job Matching":
 
                     # Job URL - Check if URL is valid before displaying
                     job_url = row.get('URL', '#')
-                    if job_url and job_url != '#' and job_url.startswith('http'): # Basic check
+                    if job_url and isinstance(job_url, str) and job_url != '#' and job_url.startswith('http'): # Basic check and type check
                          st.markdown(f"[🔗 View Job Posting]({job_url})")
-                    elif job_url and job_url != '#':
+                    elif job_url and isinstance(job_url, str) and job_url != '#':
                          st.markdown(f"URL: {job_url}") # Display if it exists but isn't a standard http link
                     else:
                          st.markdown("URL: Not available")
@@ -618,7 +631,7 @@ elif app_mode == "Resume-to-Job Matching":
                 label="⬇ Download results as Excel",
                 data=output,
                 file_name="matched_jobs.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.document",
                 key="matching_download_button"
             )
 
@@ -769,7 +782,7 @@ elif app_mode == "Resume Analysis":
 
             # Section count
             sections = resume_structure_analysis.get('sections', {})
-            # Filter out 'other' and 'content' unless they have significant content
+            # Filter out 'other' and 'content' which are usually catch-alls unless they have significant content
             detected_sections = [s for s in sections if s not in ['other', 'content'] or (s in ['other', 'content'] and len(sections[s].strip()) > 50)]
             section_count = len(detected_sections)
             with col2:
@@ -1127,9 +1140,3 @@ elif app_mode == "Job Market Explorer":
                      st.error(f"Error generating word cloud: {e}")
             else:
                 st.info("No sufficient job description/requirements text available to generate a word cloud.")
-
-
-# Footer
-st.markdown("---")
-st.write("Developed with ❤️ using Streamlit")
-st.write("Data source: Zangia (Filtered public listings)")
