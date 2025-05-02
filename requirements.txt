@@ -35,6 +35,5 @@ requests>=2.28.1
 # This line installs the specific model package compatible with spacy 3.7.5
 en_core_web_sm @ https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.7.0/en_core_web_sm-3.7.0.tar.gz#egg=en_core_web_sm
 
-fuzzywuzzy
-termcolor
+
 
