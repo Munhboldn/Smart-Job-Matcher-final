@@ -301,3 +301,4 @@ elif app_mode == "Job Market Explorer":
     st.plotly_chart(fig2, use_container_width=True)
 
     st.dataframe(filtered_jobs[['Job title', 'Company', 'Salary']], use_container_width=True)
+
