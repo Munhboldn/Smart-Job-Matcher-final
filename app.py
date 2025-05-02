@@ -527,10 +527,9 @@ elif app_mode == "Resume-to-Job Matching":
                 filtered_jobs_display['URL'] = filtered_jobs_display['URL'].apply(make_clickable_link)
 
 
-                st.dataframe(
-                    filtered_jobs_display, # Use the modified DataFrame
-                    use_container_width=True,
-                    unsafe_allow_html=True # Allow HTML in DataFrame for clickable links
+                 st.dataframe(
+                     filtered_jobs_display,
+                     use_container_width=True
                 )
 
             with tab2:
