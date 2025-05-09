@@ -1143,9 +1143,3 @@ elif app_mode == "Job Market Explorer":
                      st.error(f"Error generating word cloud: {e}")
             else:
                 st.info("No sufficient job description/requirements text available to generate a word cloud.")
-
-
-# Footer
-st.markdown("---")
-st.write("Developed with ❤️ using Streamlit")
-st.write("Data source: Zangia (Filtered public listings)")
