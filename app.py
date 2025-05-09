@@ -1096,24 +1096,17 @@ elif app_mode == "Job Market Explorer":
             st.markdown("#### Available Job Listings")
 
             # Show all jobs in a scrollable container
-            shown_jobs = filtered_jobs[['Job title', 'Company', 'Salary', 'URL']]
+            shown_jobs = filtered_jobs[['Job title', 'Company', 'Salary', 'URL']].copy()
 
-            job_list_html = "<div style='max-height: 500px; overflow-y: auto; padding: 10px; border: 1px solid #ccc; border-radius: 8px;'>"
+            def make_clickable(url):
+                return f"[View Posting]({url})" if isinstance(url, str) and url.startswith("http") else "N/A"
+                
+            shown_jobs['View'] = shown_jobs['URL'].apply(make_clickable)
+            shown_jobs.drop(columns=['URL'], inplace=True)
+            shown_jobs = shown_jobs[['Job title', 'Company', 'Salary', 'View']]
 
-            for _, row in shown_jobs.iterrows():
-                title = row.get('Job title', 'Unknown Job')
-                company = row.get('Company', 'Unknown Company')
-                salary = row.get('Salary', 'Not specified')
-                url = row.get('URL', '')
-
-                if isinstance(url, str) and url.startswith("http"):
-                    job_list_html += f"<p><strong>{title}</strong> at <strong>{company}</strong> – 💰 {salary} – <a href='{url}' target='_blank'>🔗 View</a></p>"
-                else:
-                    job_list_html += f"<p><strong>{title}</strong> at <strong>{company}</strong> – 💰 {salary} – No link available</p>"
-
-            job_list_html += "</div>"
-
-            st.markdown(job_list_html, unsafe_allow_html=True)
+              # Display the table
+            st.dataframe(shown_jobs, use_container_width=True, height=500)
 
 
 
