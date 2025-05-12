@@ -9,18 +9,18 @@ import re # Import regex for salary extraction
 from collections import Counter # Import Counter for missing skills
 import os # Import os if needed for file paths (though not strictly used here)
 
-# Import your custom modules
+# Import  custom modules
 # Make sure these modules are in your project directory and updated
 try:
-    # Import the updated parser function for structure analysis
+    
     from resume_parser import extract_text_from_pdf, extract_text_from_docx, analyze_resume as analyze_resume_structure
-    # Import functions from the updated semantic matcher
+    
     from semantic_matcher import (
         semantic_match_resume,
-        extract_resume_keywords, # Keep if you use it elsewhere, though not in the main analysis tab now
+        extract_resume_keywords, 
         extract_skills_from_resume,
         get_skill_matches,
-        # The analyze_resume function was removed from semantic_matcher
+        
     )
     # Import visualization libraries needed directly in app.py
     from wordcloud import WordCloud
@@ -138,7 +138,7 @@ def load_jobs():
         df['Salary'] = df['Salary'].fillna('Not specified')
         df['Job description'] = df['Job description'].fillna('')
         df['Requirements'] = df['Requirements'].fillna('')
-        # Ensure URL column exists and is string type
+        
         if 'URL' not in df.columns:
             df['URL'] = '#' # Default or placeholder if no URL column
         df['URL'] = df['URL'].astype(str)
@@ -243,7 +243,7 @@ with st.sidebar:
 
 # === Resume Creator Mode ===
 if app_mode == "Resume Creator":
-    st.markdown('📄 Resume Creator', unsafe_allow_html=True) # Corrected emoji
+    st.markdown('📄 Resume Creator', unsafe_allow_html=True) 
 
     st.info("Fill in the fields below to generate a basic resume (DOCX format)")
 
@@ -253,13 +253,13 @@ if app_mode == "Resume Creator":
     linkedin = st.text_input("LinkedIn URL", "", key="creator_linkedin")
     summary = st.text_area("Professional Summary", height=100, value="", key="creator_summary")
 
-    st.markdown("### 🎓 Education") # Corrected emoji
+    st.markdown("### 🎓 Education") 
     education = st.text_area("List your education background (e.g., Degree, University, Dates)", height=150, value="", key="creator_education")
 
-    st.markdown("### 💼 Work Experience") # Corrected emoji
+    st.markdown("### 💼 Work Experience") 
     experience = st.text_area("List your work experience (e.g., Job Title, Company, Dates, Responsibilities/Achievements)", height=200, value="", key="creator_experience")
 
-    st.markdown("### 🛠️ Skills") # Corrected emoji
+    st.markdown("### 🛠️ Skills")
     skills_input = st.text_area("List your key skills (separated by commas)", value="", key="creator_skills")
 
     if st.button("Generate Resume", key="creator_generate_button"):
@@ -277,7 +277,7 @@ if app_mode == "Resume Creator":
             if linkedin: contact_parts.append(linkedin)
             if contact_parts:
                 doc.add_paragraph(" | ".join(contact_parts))
-            doc.add_paragraph() # Add a blank line
+            doc.add_paragraph() 
 
             # Add Summary
             if summary.strip():
@@ -309,7 +309,7 @@ if app_mode == "Resume Creator":
             buffer.seek(0)
 
             st.download_button(
-                label="📄 Download Resume", # Corrected emoji
+                label="📄 Download Resume", 
                 data=buffer,
                 file_name=f"{name.replace(' ', '_').lower()}_resume.docx" if name else "my_resume.docx",
                 mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
@@ -360,8 +360,8 @@ elif app_mode == "Resume-to-Job Matching":
                          st.session_state.resume_structure_analysis = analyze_resume_structure(st.session_state.resume_text)
                          # Use the extract_skills function from semantic_matcher
                          st.session_state.skills_extracted = extract_skills_from_resume(st.session_state.resume_text)
-                         # You might still want a separate skills analysis result if needed later
-                         # st.session_state.resume_skills_analysis = analyze_resume_skills(st.session_state.resume_text) # If analyze_resume_skills still exists and is useful
+                         
+                         
 
                 # Provide feedback after processing
                 if isinstance(st.session_state.resume_text, str) and not st.session_state.resume_text.startswith("Error extracting") and st.session_state.resume_text.strip():
@@ -450,12 +450,7 @@ elif app_mode == "Resume-to-Job Matching":
                 # Filter by selected keywords if any
                 filtered_jobs = jobs_df.copy() # Work on a copy
                 if selected_keywords:
-                    # Create a case-insensitive regex pattern
-                    # Ensure keywords are treated as whole words where appropriate, or use semantic filtering
-                    # For simple keyword presence, a regex like this works, but might match parts of words
-                    # pattern = '|'.join([re.escape(kw) for kw in selected_keywords]) # Use re.escape for special chars
-                    # Using word boundaries \b might be better for whole words, but more complex with phrases
-                    # Let's stick to the current pattern matching anywhere for broader filtering
+                  
                     pattern = '|'.join([re.escape(kw) for kw in selected_keywords])
                     filtered_jobs = filtered_jobs[
                         filtered_jobs["Job title"].str.contains(pattern, na=False, case=False) |
@@ -470,8 +465,7 @@ elif app_mode == "Resume-to-Job Matching":
                 else:
                     # Match using semantic embeddings
                     start_time = time.time()
-                    # Ensure match_score is added by the semantic_match_resume function
-                    # Pass the extracted resume text directly
+                 
                     results = semantic_match_resume(st.session_state.resume_text, filtered_jobs, top_n=top_n)
                     matching_time = time.time() - start_time
 
@@ -507,9 +501,7 @@ elif app_mode == "Resume-to-Job Matching":
         if st.session_state.job_results is not None and not st.session_state.job_results.empty:
             st.markdown('<div class="sub-header">✅ Top Matching Jobs</div>', unsafe_allow_html=True)
 
-            # Get resume skills for matching
-            # Use skills from session state analysis results for consistency
-            resume_skills_list = st.session_state.skills_extracted # This is already a list from session state
+            resume_skills_list = st.session_state.skills_extracted 
 
             # Create tabs for different views
             tab1, tab2 = st.tabs(["List View", "Detailed View"])
@@ -521,8 +513,7 @@ elif app_mode == "Resume-to-Job Matching":
                         return f'<a href="{url}" target="_blank">{url}</a>'
                     return url # Return as is if not a valid http link or not a string
 
-                # Apply the function to the URL column and display with unsafe_allow_html
-                # Modify the DataFrame column directly BEFORE passing to st.dataframe
+                
                 filtered_jobs_display = st.session_state.job_results[['Job title', 'Company', 'Salary', 'match_score', 'URL']].copy()
                 filtered_jobs_display['URL'] = filtered_jobs_display['URL'].apply(make_clickable_link)
 
@@ -690,14 +681,13 @@ elif app_mode == "Resume Analysis":
     st.markdown('📊 Resume Analyzer', unsafe_allow_html=True)
     st.write("Upload your resume to get a detailed analysis of its content and effectiveness.")
 
-    # Initialize analysis results to None before the file upload
-    # These are local variables for this mode, they will be populated if a file is uploaded and processed
+   
     resume_structure_analysis = None
     skills_analysis = None
-    resume_text_analysis = "" # Local variable for text in this mode
+    resume_text_analysis = "" 
 
     # Upload resume for analysis
-    uploaded_file = st.file_uploader("", type=["pdf", "docx"], key="analysis_uploader_mode") # Added unique key
+    uploaded_file = st.file_uploader("", type=["pdf", "docx"], key="analysis_uploader_mode") 
 
 
     if uploaded_file:
@@ -740,12 +730,7 @@ elif app_mode == "Resume Analysis":
                 else:
                     st.error("Could not extract text from the resume for analysis.")
 
-        # If text was already extracted (e.g., on rerun), use the existing local variables
-        # This assumes analysis results are implicitly available if text_analysis is not empty
-        # A more robust way would be to store analysis results in session state for this mode too
-        # But for simplicity, we'll rely on the processing block above running on file upload/change.
-        # If the app reruns for other reasons without a new file, analysis won't re-run unless needed.
-        # Let's re-run analysis if text is present but analysis results are not (e.g., after a code change)
+       
         if isinstance(resume_text_analysis, str) and not resume_text_analysis.startswith("Error extracting") and resume_text_analysis.strip() and (resume_structure_analysis is None or skills_analysis is None):
              with st.spinner("Re-analyzing resume..."):
                  resume_structure_analysis = analyze_resume_structure(resume_text_analysis)
@@ -846,7 +831,7 @@ elif app_mode == "Resume Analysis":
 
                 # Create and display word cloud
                 try:
-                    # Ensure WordCloud and matplotlib are imported at the top
+                    
                     wordcloud = WordCloud(width=800, height=400, background_color='white',
                                         colormap='viridis', max_words=50, min_font_size=10).generate(text_for_wordcloud)
 
