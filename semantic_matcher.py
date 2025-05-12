@@ -22,7 +22,7 @@ except LookupError:
 
 
 # Load spaCy model for NER
-# Check if model is already downloaded or try downloading
+
 try:
     nlp = spacy.load('en_core_web_sm')
 except:
@@ -40,7 +40,7 @@ except:
 
 
 # Initialize sentence transformer model
-# Check for local model first before downloading
+
 model_name = 'paraphrase-multilingual-MiniLM-L12-v2'
 model = None
 try:
@@ -90,21 +90,15 @@ def extract_resume_keywords(text, top_n=50): # Increased top_n
 
     keywords = tokens # Start with individual words
 
-    # Add multi-word phrases from N-grams (optional, can add noise)
-    # from nltk.util import ngrams
-    # bigrams = [' '.join(grams) for grams in ngrams(tokens, 2) if ' '.join(grams) not in stop_words]
-    # trigrams = [' '.join(grams) for grams in ngrams(tokens, 3) if ' '.join(grams) not in stop_words]
-    # keywords.extend(bigrams + trigrams)
 
 
-    # Add entities from spaCy if available
+    
     if nlp:
         doc = nlp(processed_text)
-        # Consider more relevant entity types like ORG, PRODUCT, GPE, NORP, FAC, LOC
-        # Filter out common short entities that might not be keywords
+       
         entities = [ent.text.lower() for ent in doc.ents if ent.label_ in ["ORG", "PRODUCT", "GPE", "NORP", "FAC", "LOC", "PERSON"] and len(ent.text.split()) > 1 and len(ent.text) > 3] # Filter short entities and single words
 
-        # Also consider noun chunks as potential keywords
+        
         noun_chunks = [chunk.text.lower() for chunk in doc.noun_chunks if len(chunk.text.split()) > 1 and chunk.text.lower() not in stop_words]
         keywords.extend(entities + noun_chunks)
 
@@ -148,7 +142,7 @@ def extract_skills_from_resume(text):
         "хүний нөөц", "хууль", "логистик", "хангамж", "үйлчилгээ", "багшлах", "сургалт"
     ]
 
-    all_skills = set(tech_skills + soft_skills + mongolian_skills) # Use a set for faster lookup
+    all_skills = set(tech_skills + soft_skills + mongolian_skills) 
 
     found_skills = []
     # Check for presence of predefined skills
@@ -156,10 +150,10 @@ def extract_skills_from_resume(text):
         if skill in processed_text:
             found_skills.append(skill)
 
-    # Add entities from spaCy if available, focusing on relevant types that might be skills/technologies
+   
     if nlp:
         doc = nlp(processed_text)
-        entity_skills = [ent.text.lower() for ent in doc.ents if ent.label_ in ["ORG", "PRODUCT", "LANGUAGE", "TECH"] and len(ent.text) > 2] # Added "TECH" if your model supports it, filter short ones
+        entity_skills = [ent.text.lower() for ent in doc.ents if ent.label_ in ["ORG", "PRODUCT", "LANGUAGE", "TECH"] and len(ent.text) > 2] 
         found_skills.extend(entity_skills)
 
     # Use a set to get unique skills and convert back to list
@@ -242,15 +236,10 @@ def get_skill_matches(resume_skills, job_text):
     # Combine job skills and keywords for comparison
     job_terms = set(job_skills + job_keywords)
 
-    # Find matched skills (skills from resume present in job terms)
-    # Ensure comparison is case-insensitive
     resume_skills_lower = [s.lower() for s in resume_skills]
     matched_skills = [skill for skill in resume_skills if skill.lower() in job_terms]
 
-    # Find potentially missing skills (skills/keywords from job terms not in resume skills)
-    # This is a simplification; a missing "keyword" might not be a "skill" you need to add.
-    # It's better to focus on missing skills from the predefined list or job-specific entities.
-    # Let's redefine missing skills as skills/entities found in the job text but not in resume skills.
+   
     job_entities = []
     if nlp:
          doc = nlp(job_text_processed)
@@ -262,12 +251,6 @@ def get_skill_matches(resume_skills, job_text):
     missing_skills = [term for term in all_job_relevant_terms if term not in resume_skills_lower]
 
 
-    # Optional: Refine missing skills to be more relevant (e.g., filter out very common words)
-    # This requires a more sophisticated approach, potentially comparing embeddings or using a skill taxonomy.
-    # For now, the current approach identifies terms in the job that weren't in your resume's skill list.
-
-
     return matched_skills, missing_skills
 
-# Removed the analyze_resume function from this file as it's redundant
-# and should be handled by the resume_parser module.
+
