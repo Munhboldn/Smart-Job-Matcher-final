@@ -6,7 +6,6 @@
 
 An AI-powered resume matcher, analyzer, and job market explorer that helps job seekers find the most relevant job listings based on their resume, and provides feedback to improve their resumes. Built with bilingual support (English and Mongolian), this app uses NLP, semantic similarity, and data visualization to create a smarter job search experience.
 
-![Smart Job Matcher Screenshot](https://raw.githubusercontent.com/yourusername/smart-job-matcher/main/assets/app_overview.png)
 
 ---
 
