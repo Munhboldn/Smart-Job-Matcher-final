@@ -80,6 +80,10 @@ An AI-powered resume matcher, analyzer, and job market explorer that helps job s
 | Data Visualization | Plotly, Matplotlib, WordCloud |
 | File Output        | openpyxl, io                  |
 
+##  Project Structure
+
+For full documentation of the codebase and architecture, see [docs/structure.md](docs/structure.md).
+
 ---
 
 ## Folder Structure
