@@ -11,7 +11,7 @@ An AI-powered resume matcher, analyzer, and job market explorer that helps job s
 
 ## Features
 
-### ✉️ Resume-to-Job Matching
+### ✉ Resume-to-Job Matching
 
 * Upload your resume (PDF or DOCX)
 * Analyze the structure and extract skills
@@ -21,7 +21,7 @@ An AI-powered resume matcher, analyzer, and job market explorer that helps job s
 * Highlight matched and missing skills
 * Download matched jobs as Excel
 
-### 📊 Resume Analysis
+###  Resume Analysis
 
 * Parse resume sections (Contact, Education, Skills, etc.)
 * Detect email, phone, LinkedIn, and more
@@ -29,7 +29,7 @@ An AI-powered resume matcher, analyzer, and job market explorer that helps job s
 * Visualize top keywords with a word cloud
 * Generate suggestions to improve your resume
 
-### 🔍 Job Market Explorer
+###  Job Market Explorer
 
 * Filter jobs by company, sector, and salary
 * Visualize:
@@ -39,7 +39,7 @@ An AI-powered resume matcher, analyzer, and job market explorer that helps job s
   * In-demand keywords (word cloud)
 * Scrollable job listing with live links
 
-### 📄 Resume Creator
+###  Resume Creator
 
 * Fill out a simple form to generate a professional resume
 * Download as a .docx file
