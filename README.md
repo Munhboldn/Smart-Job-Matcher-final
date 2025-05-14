@@ -11,7 +11,7 @@ An AI-powered resume matcher, analyzer, and job market explorer that helps job s
 
 ## Features
 
-### ✉ Resume-to-Job Matching
+###  Resume-to-Job Matching
 
 * Upload your resume (PDF or DOCX)
 * Analyze the structure and extract skills
